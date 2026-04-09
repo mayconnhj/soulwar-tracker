@@ -15,6 +15,7 @@ const api = {
 
 // All items that can come from Bag You Desire + Sanguine Set + Promotion Scroll
 const DEFAULT_ITEMS = {
+  // Soul Weapons
   "Soulcutter":"https://www.tibiawiki.com.br/images/8/80/Soulcutter.gif",
   "Soulshredder":"https://www.tibiawiki.com.br/images/2/23/Soulshredder.gif",
   "Soulbiter":"https://www.tibiawiki.com.br/images/4/42/Soulbiter.gif",
@@ -26,6 +27,7 @@ const DEFAULT_ITEMS = {
   "Soultainter":"https://www.tibiawiki.com.br/images/6/6d/Soultainter.gif",
   "Soulhexer":"https://www.tibiawiki.com.br/images/4/45/Soulhexer.gif",
   "Soulkamas":"https://www.tibiawiki.com.br/images/9/9a/Soulkamas.gif",
+  // Soul Armor/Equipment
   "Soulshanks":"https://www.tibiawiki.com.br/images/d/d2/Soulshanks.gif",
   "Soulstrider":"https://www.tibiawiki.com.br/images/2/27/Soulstrider.gif",
   "Soulshell":"https://www.tibiawiki.com.br/images/f/fd/Soulshell.gif",
@@ -36,29 +38,11 @@ const DEFAULT_ITEMS = {
   "Pair of Soulwalkers":"https://www.tibiawiki.com.br/images/3/33/Pair_of_Soulwalkers.gif",
   "Pair of Soulstalkers":"https://www.tibiawiki.com.br/images/c/cb/Pair_of_Soulstalkers.gif",
   "Soulsoles":"https://www.tibiawiki.com.br/images/a/ae/Soulsoles.gif",
-  "Sanguine Boots":"",
-  "Sanguine Trousers":"",
-  "Sanguine Legs":"",
-  "Sanguine Hatchet":"",
-  "Sanguine Bow":"",
-  "Sanguine Galoshes":"",
-  "Sanguine Battleaxe":"",
-  "Sanguine Blade":"",
-  "Sanguine Bludgeon":"",
-  "Sanguine Coil":"",
-  "Sanguine Crossbow":"",
-  "Sanguine Cudgel":"",
-  "Sanguine Greaves":"",
-  "Sanguine Razor":"",
-  "Sanguine Club":"",
+  // Bag
   "Bag You Desire":"",
-  "9 Pts Revised Promotion Scroll":"",
 };
 
 const DEFAULT_BOSSES = [
-  "Bakragore","Chagorz","Gorzindel","Irgix","Malofur Mangrinder",
-  "Maxxenius","Murcion","Neferi","Timira","Urmahlullu","Vemiath",
-  "The Brainstealer","The Pale Worm","The Unwelcome",
   "Goshnar's Megalomania","Goshnar's Hatred","Goshnar's Greed",
   "Goshnar's Spite","Goshnar's Malice","Goshnar's Cruelty"
 ];
@@ -196,7 +180,7 @@ export default function App(){
   const upSup=(i,k,v)=>setNf(p=>({...p,suplentes:p.suplentes.map((s,x)=>x===i?{...s,[k]:v}:s)}));
 
   const addDrop = async () => {
-    if(!nf.item||!nf.char||!nf.dropDate) return alert("Preencha item, boneco e data!");
+    if(!nf.item||!nf.boss||!nf.char||!nf.dropDate) return alert("Preencha item, boss, boneco e data!");
     const dropDateFmt = fromIso(nf.dropDate);
     const suplentes = nf.suplentes.filter(s=>s.nome);
 
@@ -447,7 +431,7 @@ export default function App(){
             <div style={S.form}>
               <label style={S.lbl}>Item *<select value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.sel}><option value="">Selecione...</option>{itemNames.map(i=><option key={i} value={i}>{i}</option>)}</select></label>
               {nf.item&&<div style={S.prev}><Img name={nf.item} items={allItems}/> {nf.item}</div>}
-              <label style={S.lbl}>Boss<select value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBosses.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
+              <label style={S.lbl}>Boss *<select value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBosses.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
               <label style={S.lbl}>Boneco *
                 {allBonecos.length>0?<><select value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
               </label>
