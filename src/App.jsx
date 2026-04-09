@@ -38,8 +38,6 @@ const DEFAULT_ITEMS = {
   "Pair of Soulwalkers":"https://www.tibiawiki.com.br/images/3/33/Pair_of_Soulwalkers.gif",
   "Pair of Soulstalkers":"https://www.tibiawiki.com.br/images/c/cb/Pair_of_Soulstalkers.gif",
   "Soulsoles":"https://www.tibiawiki.com.br/images/a/ae/Soulsoles.gif",
-  // Bag
-  "Bag You Desire":"",
 };
 
 const DEFAULT_BOSSES = [
@@ -180,7 +178,7 @@ export default function App(){
   const upSup=(i,k,v)=>setNf(p=>({...p,suplentes:p.suplentes.map((s,x)=>x===i?{...s,[k]:v}:s)}));
 
   const addDrop = async () => {
-    if(!nf.item||!nf.boss||!nf.char||!nf.dropDate) return alert("Preencha item, boss, boneco e data!");
+    if(!nf.boss||!nf.char||!nf.dropDate) return alert("Preencha boss, boneco e data!");
     const dropDateFmt = fromIso(nf.dropDate);
     const suplentes = nf.suplentes.filter(s=>s.nome);
 
@@ -429,7 +427,7 @@ export default function App(){
           {adminSub==="registro"&&<div>
             {editDropId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
             <div style={S.form}>
-              <label style={S.lbl}>Item *<select value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.sel}><option value="">Selecione...</option>{itemNames.map(i=><option key={i} value={i}>{i}</option>)}</select></label>
+              <label style={S.lbl}>Item<select value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.sel}><option value="">Selecione...</option>{itemNames.map(i=><option key={i} value={i}>{i}</option>)}</select></label>
               {nf.item&&<div style={S.prev}><Img name={nf.item} items={allItems}/> {nf.item}</div>}
               <label style={S.lbl}>Boss *<select value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBosses.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
               <label style={S.lbl}>Boneco *
