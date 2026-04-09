@@ -178,7 +178,7 @@ export default function App(){
   const upSup=(i,k,v)=>setNf(p=>({...p,suplentes:p.suplentes.map((s,x)=>x===i?{...s,[k]:v}:s)}));
 
   const addDrop = async () => {
-    if(!nf.boss||!nf.char||!nf.dropDate) return alert("Preencha boss, boneco e data!");
+    if(!nf.dropDate) return alert("Preencha a data!");
     const dropDateFmt = fromIso(nf.dropDate);
     const suplentes = nf.suplentes.filter(s=>s.nome);
 
@@ -429,8 +429,8 @@ export default function App(){
             <div style={S.form}>
               <label style={S.lbl}>Item<select value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.sel}><option value="">Selecione...</option>{itemNames.map(i=><option key={i} value={i}>{i}</option>)}</select></label>
               {nf.item&&<div style={S.prev}><Img name={nf.item} items={allItems}/> {nf.item}</div>}
-              <label style={S.lbl}>Boss *<select value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBosses.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
-              <label style={S.lbl}>Boneco *
+              <label style={S.lbl}>Boss<select value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBosses.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
+              <label style={S.lbl}>Boneco
                 {allBonecos.length>0?<><select value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
               </label>
               <label style={S.lbl}>Dropador<input value={nf.dropador} onChange={e=>setNf({...nf,dropador:e.target.value})} style={S.inp} placeholder="Quem pilotou"/></label>
