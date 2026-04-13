@@ -1,8 +1,13 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync } from 'fs';
+import {
+  getDrops, addDrop, updateDrop, deleteDrop,
+  getConfig, saveConfig, checkPassword
+} from './lib/supabase.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -21,135 +26,82 @@ if (existsSync(distPath)) {
   app.use(express.static(distPath));
 }
 
-// ── JSON File Database ──────────────────────────────────────────────
-const DB_FILE = join(__dirname, 'database.json');
-
-function loadDB() {
-  if (!existsSync(DB_FILE)) {
-    const initial = {
-      drops: [],
-      config: {
-        password: 'soulwar2026',
-        bosses: [],
-        fixos: [],
-        bonecos: [],
-        items: {},
-        teamA: ['Conopcas', 'Verfix', 'Obonitao Lindão', 'Mad Tian'],
-        teamB: ['Lark Zepin', 'Abel Shaene', 'Brabubagore', 'Sokon Eltanke'],
-        tcPriceReal: '53',
-        tcPriceKK: '39',
-        tcQty: '250',
-        removedBosses: [],
-        removedFixos: [],
-        removedItems: []
-      }
-    };
-    writeFileSync(DB_FILE, JSON.stringify(initial, null, 2), 'utf-8');
-    return initial;
-  }
-  return JSON.parse(readFileSync(DB_FILE, 'utf-8'));
-}
-
-function saveDB(data) {
-  writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-// Initialize
-let database = loadDB();
-
 // ── Drops CRUD ──────────────────────────────────────────────────────
 
-// GET all drops
-app.get('/api/drops', (req, res) => {
-  database = loadDB();
-  res.json(database.drops);
+app.get('/api/drops', async (req, res) => {
+  try {
+    const drops = await getDrops();
+    res.json(drops);
+  } catch (err) {
+    console.error('GET /api/drops error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST new drop
-app.post('/api/drops', (req, res) => {
-  database = loadDB();
-  const { item, boss, char, pagante, dropDate, dropador, suplentes, loot, servicePrice, tempo } = req.body;
-  const drop = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    item,
-    boss: boss || '',
-    char,
-    pagante: pagante || '',
-    drop_date: dropDate || '',
-    dropador: dropador || '',
-    suplentes: suplentes || [],
-    loot: loot || '',
-    service_price: servicePrice || '',
-    tempo: tempo || '',
-    sold_price: '',
-    sold_date: '',
-    created_at: new Date().toISOString()
-  };
-  database.drops.unshift(drop);
-  saveDB(database);
-  res.json(drop);
+app.post('/api/drops', async (req, res) => {
+  try {
+    const drop = await addDrop(req.body);
+    res.json(drop);
+  } catch (err) {
+    console.error('POST /api/drops error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// PUT update drop
-app.put('/api/drops/:id', (req, res) => {
-  database = loadDB();
-  const idx = database.drops.findIndex(d => d.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Drop not found' });
-
-  const { item, boss, char, pagante, dropDate, dropador, suplentes, loot, servicePrice, tempo, soldPrice, soldDate } = req.body;
-  const existing = database.drops[idx];
-
-  if (item !== undefined) existing.item = item;
-  if (boss !== undefined) existing.boss = boss;
-  if (char !== undefined) existing.char = char;
-  if (pagante !== undefined) existing.pagante = pagante;
-  if (dropDate !== undefined) existing.drop_date = dropDate;
-  if (dropador !== undefined) existing.dropador = dropador;
-  if (suplentes !== undefined) existing.suplentes = suplentes;
-  if (loot !== undefined) existing.loot = loot;
-  if (servicePrice !== undefined) existing.service_price = servicePrice;
-  if (tempo !== undefined) existing.tempo = tempo;
-  if (soldPrice !== undefined) existing.sold_price = soldPrice;
-  if (soldDate !== undefined) existing.sold_date = soldDate;
-
-  database.drops[idx] = existing;
-  saveDB(database);
-  res.json(existing);
+app.put('/api/drops/:id', async (req, res) => {
+  try {
+    const drop = await updateDrop(req.params.id, req.body);
+    res.json(drop);
+  } catch (err) {
+    console.error('PUT /api/drops error:', err);
+    if (err.code === 'PGRST116') return res.status(404).json({ error: 'Drop not found' });
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// DELETE drop
-app.delete('/api/drops/:id', (req, res) => {
-  database = loadDB();
-  const len = database.drops.length;
-  database.drops = database.drops.filter(d => d.id !== req.params.id);
-  if (database.drops.length === len) return res.status(404).json({ error: 'Drop not found' });
-  saveDB(database);
-  res.json({ ok: true });
+app.delete('/api/drops/:id', async (req, res) => {
+  try {
+    const result = await deleteDrop(req.params.id);
+    res.json(result);
+  } catch (err) {
+    console.error('DELETE /api/drops error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Config ──────────────────────────────────────────────────────────
 
-// GET config
-app.get('/api/config', (req, res) => {
-  database = loadDB();
-  res.json(database.config);
+app.get('/api/config', async (req, res) => {
+  try {
+    const config = await getConfig();
+    res.json(config);
+  } catch (err) {
+    console.error('GET /api/config error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// PUT config
-app.put('/api/config', (req, res) => {
-  database = loadDB();
-  database.config = req.body;
-  saveDB(database);
-  res.json(req.body);
+app.put('/api/config', async (req, res) => {
+  try {
+    const config = await saveConfig(req.body);
+    res.json(config);
+  } catch (err) {
+    console.error('PUT /api/config error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST login
-app.post('/api/login', (req, res) => {
-  database = loadDB();
-  if (req.body.password === database.config.password) {
-    res.json({ ok: true });
-  } else {
-    res.status(401).json({ error: 'Senha incorreta' });
+app.post('/api/login', async (req, res) => {
+  try {
+    const ok = await checkPassword(req.body.password);
+    if (ok) {
+      res.json({ ok: true });
+    } else {
+      res.status(401).json({ error: 'Senha incorreta' });
+    }
+  } catch (err) {
+    console.error('POST /api/login error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -162,5 +114,5 @@ if (existsSync(distPath)) {
 
 app.listen(PORT, () => {
   console.log(`🚀 Soulwar Tracker API rodando em http://localhost:${PORT}`);
-  console.log(`📦 Banco de dados: ${DB_FILE}`);
+  console.log(`🗄️  Banco de dados: Supabase (PostgreSQL)`);
 });
