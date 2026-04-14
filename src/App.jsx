@@ -3,13 +3,22 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 // ── API helpers ─────────────────────────────────────────────────────
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const API = `${API_BASE}/api`;
+
+function getToken() { return sessionStorage.getItem('admin_token') || ''; }
+function authHeaders() {
+  const t = getToken();
+  const h = { 'Content-Type': 'application/json' };
+  if (t) h['Authorization'] = `Bearer ${t}`;
+  return h;
+}
+
 const api = {
   async getDrops() { const r = await fetch(`${API}/drops`); return r.json(); },
-  async addDrop(data) { const r = await fetch(`${API}/drops`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); return r.json(); },
-  async updateDrop(id, data) { const r = await fetch(`${API}/drops/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); return r.json(); },
-  async deleteDrop(id) { const r = await fetch(`${API}/drops/${id}`, { method: 'DELETE' }); return r.json(); },
+  async addDrop(data) { const r = await fetch(`${API}/drops`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
+  async updateDrop(id, data) { const r = await fetch(`${API}/drops/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
+  async deleteDrop(id) { const r = await fetch(`${API}/drops/${id}`, { method: 'DELETE', headers: authHeaders() }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
   async getConfig() { const r = await fetch(`${API}/config`); return r.json(); },
-  async saveConfig(data) { const r = await fetch(`${API}/config`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); return r.json(); },
+  async saveConfig(data) { const r = await fetch(`${API}/config`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
   async login(password) { const r = await fetch(`${API}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); return r; },
 };
 
@@ -97,7 +106,7 @@ export default function App(){
   const [fChar,setFChar]=useState("");
   const [fDate,setFDate]=useState("");
   const [aMonth,setAMonth]=useState("");
-  const ef={item:"",boss:"",char:"",pagante:"",dropDate:"",dropador:"",suplentes:[],loot:"",servicePrice:"",tempo:""};
+  const ef={item:"",boss:"",char:"",pagante:"",dropDate:"",dropador:"",suplentes:[],loot:"",servicePrice:"",tempo:"",team:""};
   const [nf,setNf]=useState(ef);
   const [editId,setEditId]=useState(null);
   const [salePrice,setSalePrice]=useState("");
@@ -129,6 +138,7 @@ export default function App(){
         loot: d.loot,
         servicePrice: d.service_price,
         tempo: d.tempo,
+        team: d.team,
         soldPrice: d.sold_price,
         soldDate: d.sold_date,
         createdAt: d.created_at
@@ -186,14 +196,14 @@ export default function App(){
       await api.updateDrop(editDropId, {
         item: nf.item, boss: nf.boss, char: nf.char, pagante: nf.pagante,
         dropDate: dropDateFmt, dropador: nf.dropador, suplentes,
-        loot: nf.loot, servicePrice: nf.servicePrice, tempo: nf.tempo
+        loot: nf.loot, servicePrice: nf.servicePrice, tempo: nf.tempo, team: nf.team
       });
       setEditDropId(null);
     } else {
       await api.addDrop({
         item: nf.item, boss: nf.boss, char: nf.char, pagante: nf.pagante,
         dropDate: dropDateFmt, dropador: nf.dropador, suplentes,
-        loot: nf.loot, servicePrice: nf.servicePrice, tempo: nf.tempo
+        loot: nf.loot, servicePrice: nf.servicePrice, tempo: nf.tempo, team: nf.team
       });
     }
     setNf({...ef});
@@ -204,7 +214,7 @@ export default function App(){
     const d=drops.find(x=>x.id===id);if(!d)return;
     const dd=d.dropDate;let isoDate="";
     if(dd){const[day,mon,yr]=dd.split("/");isoDate=`${yr}-${mon}-${day}`;}
-    setNf({item:d.item||"",boss:d.boss||"",char:d.char||"",pagante:d.pagante||"",dropDate:isoDate,dropador:d.dropador||"",suplentes:d.suplentes||[],loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||""});
+    setNf({item:d.item||"",boss:d.boss||"",char:d.char||"",pagante:d.pagante||"",dropDate:isoDate,dropador:d.dropador||"",suplentes:d.suplentes||[],loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",team:d.team||""});
     setEditDropId(id);
     setAdminSub("registro");
     window.scrollTo({top:0,behavior:"smooth"});
@@ -251,9 +261,10 @@ export default function App(){
     if(aMonth)data=data.filter(d=>{const dt=parseDate(d.dropDate);if(!dt)return false;return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`===aMonth;});
 
     let totalLoot=0,totalSvcTC=0,soldKK=0,soldTC=0,totalTempo=0;
+    let lootQuestA=0,lootQuestB=0,svcQuestA=0,svcQuestB=0;
     data.forEach(d=>{
-      if(d.loot){const v=parseFloat(String(d.loot).replace(",","."));if(!isNaN(v))totalLoot+=v;}
-      if(d.servicePrice){const v=parseFloat(String(d.servicePrice).replace(",","."));if(!isNaN(v))totalSvcTC+=v;}
+      if(d.loot){const v=parseFloat(String(d.loot).replace(",","."));if(!isNaN(v)){totalLoot+=v;if(d.team==="A")lootQuestA+=v;else if(d.team==="B")lootQuestB+=v;}}
+      if(d.servicePrice){const v=parseFloat(String(d.servicePrice).replace(",","."));if(!isNaN(v)){totalSvcTC+=v;if(d.team==="A")svcQuestA+=v;else if(d.team==="B")svcQuestB+=v;}}
       if(d.tempo){const v=parseInt(d.tempo);if(!isNaN(v))totalTempo+=v;}
     });
 
@@ -271,7 +282,7 @@ export default function App(){
     let tBkk=0,tBtc=0,tBn=0,uBkk=0,uBtc=0;
 
     soldData.forEach(d=>{
-      const team=getTeam(d.char);
+      const team=d.team||getTeam(d.char);
       if(!team)return;
       const{kk,tc}=parseSold(d.soldPrice);
       const supCount=(d.suplentes||[]).filter(s=>s.nome).length;
@@ -292,15 +303,26 @@ export default function App(){
     const unitBRealVal=_kkToReal(uBkk)+_tcToReal(uBtc);
     const totalUnitReal=unitARealVal+unitBRealVal;
 
+    const lootQuestARealVal=_kkToReal(lootQuestA);
+    const lootQuestBRealVal=_kkToReal(lootQuestB);
+    const svcQuestARealVal=_tcToReal(svcQuestA);
+    const svcQuestBRealVal=_tcToReal(svcQuestB);
+
     return {totalLoot,totalSvcTC,soldKK,soldTC,itemRank,charRank,dropadorRank,
       totalDrops:data.length,totalSold:soldData.length,totalTempo,
       tAkk,tAtc,tAn,uAkk,uAtc,tBkk,tBtc,tBn,uBkk,uBtc,
-      totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal};
+      totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal,
+      lootQuestA,lootQuestB,svcQuestA,svcQuestB,
+      lootQuestARealVal,lootQuestBRealVal,svcQuestARealVal,svcQuestBRealVal};
   },[sorted,aMonth,getTeam,tcKK,tcReal,tcQty]);
 
   const doLogin = async () => {
     const r = await api.login(passInput);
-    if(r.ok){ setIsAdmin(true); setShowLogin(false); setPassInput(""); }
+    if(r.ok){
+      const data = await r.json();
+      if(data.token) sessionStorage.setItem('admin_token', data.token);
+      setIsAdmin(true); setShowLogin(false); setPassInput("");
+    }
     else alert("Senha incorreta!");
   };
 
@@ -341,7 +363,7 @@ export default function App(){
               {isAdmin?<input value={cfg.tcPriceKK||""} onChange={e=>saveC({...cfg,tcPriceKK:e.target.value})} style={S.tcInp}/>:<span style={S.tcV}>{cfg.tcPriceKK||"—"}k</span>}
               <span style={S.tcS}>/1tc</span>
             </div>
-            {isAdmin?<button onClick={()=>{setIsAdmin(false);setTab("historico");}} style={S.logoutBtn}>Sair</button>:<button onClick={()=>setShowLogin(!showLogin)} style={S.adminBtn}>🔒 Admin</button>}
+            {isAdmin?<button onClick={()=>{sessionStorage.removeItem('admin_token');setIsAdmin(false);setTab("historico");}} style={S.logoutBtn}>Sair</button>:<button onClick={()=>setShowLogin(!showLogin)} style={S.adminBtn}>🔒 Admin</button>}
           </div>
         </div>
         {showLogin&&!isAdmin&&<div style={S.loginBar}><input type="password" placeholder="Senha..." value={passInput} onChange={e=>setPassInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()} style={S.loginInp}/><button onClick={doLogin} style={S.loginGo}>Entrar</button></div>}
@@ -368,19 +390,19 @@ export default function App(){
           </div>
           <div style={S.cnt}>{filtered.length} registro(s)</div>
           <div style={S.tw}><table style={S.tbl}><thead><tr>
-            <th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Pagante</th><th style={S.th}>Suplente(s)</th><th style={S.th}>Data</th>
+            <th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Time</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Pagante</th><th style={S.th}>Suplente(s)</th><th style={S.th}>Data</th>
             {isAdmin&&<><th style={S.th}>Loot</th><th style={S.th}>Service</th><th style={S.th}>Tempo</th></>}
             <th style={S.th}>Venda</th><th style={S.th}>Dt Venda</th>
           </tr></thead><tbody>
             {filtered.map(d=><tr key={d.id} style={d.soldPrice?S.rS:S.rN}>
               <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
-              <td style={S.td}>{d.boss||"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
+              <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
               <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
               <td style={S.td}>{d.dropDate}</td>
               {isAdmin&&<><td style={S.td}>{d.loot?`${d.loot}kk`:"—"}</td><td style={S.td}>{d.servicePrice?`${d.servicePrice}tc`:"—"}</td><td style={S.td}>{fmtMin(d.tempo)}</td></>}
               <td style={S.td}>{d.soldPrice||"—"}</td><td style={S.td}>{d.soldDate||"—"}</td>
             </tr>)}
-            {filtered.length===0&&<tr><td colSpan={isAdmin?12:9} style={S.empty}>Nenhum registro</td></tr>}
+            {filtered.length===0&&<tr><td colSpan={isAdmin?13:10} style={S.empty}>Nenhum registro</td></tr>}
           </tbody></table></div>
         </div>}
 
@@ -430,6 +452,7 @@ export default function App(){
               <label style={S.lbl}>Item<select value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.sel}><option value="">Selecione...</option>{itemNames.map(i=><option key={i} value={i}>{i}</option>)}</select></label>
               {nf.item&&<div style={S.prev}><Img name={nf.item} items={allItems}/> {nf.item}</div>}
               <label style={S.lbl}>Boss<select value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBosses.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
+              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option></select></label>
               <label style={S.lbl}>Boneco
                 {allBonecos.length>0?<><select value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
               </label>
@@ -455,10 +478,10 @@ export default function App(){
             </div>
             <h2 style={{...S.h2,marginTop:40}}>📋 Registros ({drops.length})</h2>
             <div style={S.tw}><table style={S.tbl}><thead><tr>
-              <th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Pagante</th><th style={S.th}>Sup</th><th style={S.th}>Data</th><th style={S.th}>Loot</th><th style={S.th}>Svc</th><th style={S.th}>Tempo</th><th style={S.th}>Venda</th><th style={S.th}>Ações</th>
+              <th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Time</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Pagante</th><th style={S.th}>Sup</th><th style={S.th}>Data</th><th style={S.th}>Loot</th><th style={S.th}>Svc</th><th style={S.th}>Tempo</th><th style={S.th}>Venda</th><th style={S.th}>Ações</th>
             </tr></thead><tbody>
               {sorted.map(d=><tr key={d.id} style={{...(d.soldPrice?S.rS:S.rN),...(editDropId===d.id?{background:"rgba(31,111,235,.12)",outline:"1px solid #1f6feb"}:{})}}>
-                <td style={S.td}><Img name={d.item} items={allItems}/> {d.item}</td><td style={S.td}>{d.boss||"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
+                <td style={S.td}><Img name={d.item} items={allItems}/> {d.item}</td><td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
                 <td style={{...S.td,whiteSpace:"normal",maxWidth:150,fontSize:11}}>{supDisp(d.suplentes)}</td>
                 <td style={S.td}>{d.dropDate}</td><td style={S.td}>{d.loot?`${d.loot}kk`:"—"}</td><td style={S.td}>{d.servicePrice?`${d.servicePrice}tc`:"—"}</td><td style={S.td}>{fmtMin(d.tempo)}</td><td style={S.td}>{d.soldPrice||"—"}</td>
                 <td style={S.td}><button onClick={()=>startEditDrop(d.id)} style={S.editBtn} title="Editar">✏️</button><button onClick={()=>startDel(d.id)} style={S.delBtn} title="Remover">🗑️</button></td>
@@ -524,6 +547,11 @@ export default function App(){
                 <div><div style={S.miniLbl}>Unit. TC</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.uAtc.toFixed(1)}tc</div></div>
                 <div><div style={S.miniLbl}>Unit. R$</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${analytics.unitARealVal.toFixed(2)}</div></div>
               </div>
+              <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestA.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestARealVal.toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestA.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestARealVal.toFixed(2)}</div></div>
+                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time A (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitARealVal+analytics.lootQuestARealVal+analytics.svcQuestARealVal).toFixed(2)}</div></div>
+              </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamA.join(", ")}</div>
             </div>
             <div style={{background:"#161b22",border:"1px solid #da3633",borderRadius:10,padding:16,flex:"1 1 300px"}}>
@@ -537,6 +565,11 @@ export default function App(){
                 <div><div style={S.miniLbl}>Unit. TC</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.uBtc.toFixed(1)}tc</div></div>
                 <div><div style={S.miniLbl}>Unit. R$</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${analytics.unitBRealVal.toFixed(2)}</div></div>
               </div>
+              <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestB.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestBRealVal.toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestB.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestBRealVal.toFixed(2)}</div></div>
+                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time B (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitBRealVal+analytics.lootQuestBRealVal+analytics.svcQuestBRealVal).toFixed(2)}</div></div>
+              </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamB.join(", ")}</div>
             </div>
             <div style={{background:"#161b22",border:"2px solid #2ecc40",borderRadius:10,padding:16,flex:"1 1 220px"}}>
@@ -544,7 +577,11 @@ export default function App(){
               <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
                 <div><div style={S.miniLbl}>KK</div><div style={{fontSize:24,fontWeight:700,color:"#2ecc40"}}>{analytics.totalUnitKK.toFixed(1)}kk</div></div>
                 <div><div style={S.miniLbl}>TC</div><div style={{fontSize:24,fontWeight:700,color:"#48dbfb"}}>{analytics.totalUnitTC.toFixed(1)}tc</div></div>
-                <div><div style={S.miniLbl}>R$</div><div style={{fontSize:24,fontWeight:700,color:"#00b894"}}>R${analytics.totalUnitReal.toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>R$ (vendas)</div><div style={{fontSize:24,fontWeight:700,color:"#00b894"}}>R${analytics.totalUnitReal.toFixed(2)}</div></div>
+              </div>
+              <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:20,flexWrap:"wrap"}}>
+                <div><div style={S.miniLbl}>Loot Quest Total</div><div style={{fontSize:18,fontWeight:700,color:"#feca57"}}>{(analytics.lootQuestA+analytics.lootQuestB).toFixed(1)}kk</div></div>
+                <div><div style={S.miniLbl}>Service Total</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{(analytics.svcQuestA+analytics.svcQuestB).toFixed(0)}tc</div></div>
               </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>A+B (KK→TC→R$)</div>
             </div>

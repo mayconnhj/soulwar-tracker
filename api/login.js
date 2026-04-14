@@ -1,9 +1,10 @@
 import { checkPassword } from '../lib/supabase.js';
+import { createToken } from '../lib/auth.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (req.method !== 'POST') {
@@ -13,7 +14,7 @@ export default async function handler(req, res) {
   try {
     const ok = await checkPassword(req.body.password);
     if (ok) {
-      res.json({ ok: true });
+      res.json({ ok: true, token: createToken() });
     } else {
       res.status(401).json({ error: 'Senha incorreta' });
     }

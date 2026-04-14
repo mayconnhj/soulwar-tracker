@@ -1,9 +1,10 @@
 import { getConfig, saveConfig } from '../lib/supabase.js';
+import { requireAuth } from '../lib/auth.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
@@ -13,6 +14,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PUT') {
+      if (!requireAuth(req, res)) return;
       const config = await saveConfig(req.body);
       return res.json(config);
     }

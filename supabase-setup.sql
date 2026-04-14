@@ -20,8 +20,12 @@ CREATE TABLE IF NOT EXISTS drops (
   tempo TEXT DEFAULT '',
   sold_price TEXT DEFAULT '',
   sold_date TEXT DEFAULT '',
+  team TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Adiciona coluna team se a tabela ja existe
+ALTER TABLE drops ADD COLUMN IF NOT EXISTS team TEXT DEFAULT '';
 
 -- Tabela de configuracao (uma unica linha)
 CREATE TABLE IF NOT EXISTS config (
