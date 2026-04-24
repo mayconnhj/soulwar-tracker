@@ -120,6 +120,8 @@ export default function App(){
   const [newPassC,setNewPassC]=useState("");
   const [confirmDel,setConfirmDel]=useState(null);
   const [editDropId,setEditDropId]=useState(null);
+  const [showDropModal,setShowDropModal]=useState(false);
+  const [dropSnap,setDropSnap]=useState(null);
 
   // ── Load data from API ──────────────────────────────────────────
   const load = useCallback(async () => {
@@ -187,9 +189,15 @@ export default function App(){
   const rmSup=i=>setNf(p=>({...p,suplentes:p.suplentes.filter((_,x)=>x!==i)}));
   const upSup=(i,k,v)=>setNf(p=>({...p,suplentes:p.suplentes.map((s,x)=>x===i?{...s,[k]:v}:s)}));
 
+  // Funções do modal de drop
+  const openDropModal=()=>{setDropSnap({item:nf.item,loot:nf.loot,servicePrice:nf.servicePrice,tempo:nf.tempo,dropDate:nf.dropDate});setShowDropModal(true);};
+  const saveDropModal=()=>setShowDropModal(false);
+  const cancelDropModal=()=>{if(dropSnap)setNf(p=>({...p,...dropSnap}));setShowDropModal(false);};
+  const clearDrop=()=>setNf(p=>({...p,item:"",loot:"",servicePrice:"",tempo:"",dropDate:""}));
+
   const addDrop = async () => {
-    if(!nf.dropDate) return alert("Preencha a data!");
-    const dropDateFmt = fromIso(nf.dropDate);
+    if(nf.item&&!nf.dropDate) return alert("Preencha a data do drop!");
+    const dropDateFmt = nf.dropDate ? fromIso(nf.dropDate) : "";
     const suplentes = nf.suplentes.filter(s=>s.nome);
 
     if(editDropId){
@@ -236,15 +244,15 @@ export default function App(){
     }
   };
 
-  const sorted=useMemo(()=>[...drops].sort((a,b)=>{const da=parseDate(a.dropDate),db=parseDate(b.dropDate);if(!da||!db)return 0;return db-da;}),[drops]);
+  const sorted=useMemo(()=>[...drops].sort((a,b)=>{const da=parseDate(a.dropDate)||new Date(a.createdAt||0),db=parseDate(b.dropDate)||new Date(b.createdAt||0);return db-da;}),[drops]);
   const filtered=useMemo(()=>sorted.filter(d=>{
     if(fItem&&d.item!==fItem)return false;
     if(fChar){const q=fChar.toLowerCase();if(!d.char.toLowerCase().includes(q)&&!(d.dropador||"").toLowerCase().includes(q))return false;}
     if(fDate){const dt=parseDate(d.dropDate);if(dt){const iso=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;if(iso!==fDate)return false;}}
     return true;
   }),[sorted,fItem,fChar,fDate]);
-  const unsold=useMemo(()=>sorted.filter(d=>!d.soldPrice),[sorted]);
-  const sold=useMemo(()=>sorted.filter(d=>!!d.soldPrice),[sorted]);
+  const unsold=useMemo(()=>sorted.filter(d=>d.item&&!d.soldPrice),[sorted]);
+  const sold=useMemo(()=>sorted.filter(d=>d.item&&!!d.soldPrice),[sorted]);
 
   const getTeam=useCallback(cn=>{
     const c=(cn||"").toLowerCase();
@@ -271,7 +279,7 @@ export default function App(){
     const soldData=data.filter(d=>d.soldPrice);
     soldData.forEach(d=>{const{kk,tc}=parseSold(d.soldPrice);soldKK+=kk;soldTC+=tc;});
 
-    const ic={};data.forEach(d=>{ic[d.item]=(ic[d.item]||0)+1;});
+    const ic={};data.filter(d=>d.item).forEach(d=>{ic[d.item]=(ic[d.item]||0)+1;});
     const itemRank=Object.entries(ic).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
     const cc={};data.forEach(d=>{if(d.char)cc[d.char]=(cc[d.char]||0)+1;});
     const charRank=Object.entries(cc).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
@@ -285,8 +293,7 @@ export default function App(){
       const team=d.team||getTeam(d.char);
       if(!team)return;
       const{kk,tc}=parseSold(d.soldPrice);
-      const supCount=(d.suplentes||[]).filter(s=>s.nome).length;
-      const div=BASE_DIVISOR+supCount;
+      const div=BASE_DIVISOR; // suplentes substituem fixos, divisor fixo
 
       if(team==="A"){
         tAkk+=kk;tAtc+=tc;tAn++;
@@ -378,6 +385,25 @@ export default function App(){
         </div>
       </div></div>}
 
+      {showDropModal&&<div style={S.overlay}><div style={{...S.modal,maxWidth:480,width:"95%"}}>
+        <h3 style={{margin:"0 0 16px",color:"#e6edf3",fontSize:16}}>📦 Registrar Drop de Item</h3>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <label style={S.lbl}>Item
+            <input list="dl-items-modal" value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
+            <datalist id="dl-items-modal">{itemNames.map(i=><option key={i} value={i}/>)}</datalist>
+          </label>
+          {nf.item&&allItems[nf.item]&&<div style={S.prev}><Img name={nf.item} items={allItems}/> {nf.item}</div>}
+          <label style={S.lbl}>Loot (KK)<input value={nf.loot} onChange={e=>setNf({...nf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
+          <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
+          <label style={S.lbl}>Tempo (min)<input value={nf.tempo} onChange={e=>setNf({...nf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{nf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(nf.tempo)}</span>}</label>
+          <label style={S.lbl}>Data do Drop *<input type="date" value={nf.dropDate} onChange={e=>setNf({...nf,dropDate:e.target.value})} style={S.inp}/></label>
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <button onClick={saveDropModal} style={{...S.addBtn,flex:1}}>✅ Salvar Drop</button>
+            <button onClick={cancelDropModal} style={{...S.addBtn,background:"#30363d",flex:1,marginTop:0}}>Cancelar</button>
+          </div>
+        </div>
+      </div></div>}
+
       <main style={S.main}>
 
         {/* HISTÓRICO */}
@@ -394,7 +420,7 @@ export default function App(){
             {isAdmin&&<><th style={S.th}>Loot</th><th style={S.th}>Service</th><th style={S.th}>Tempo</th></>}
             <th style={S.th}>Venda</th><th style={S.th}>Dt Venda</th>
           </tr></thead><tbody>
-            {filtered.map(d=><tr key={d.id} style={d.soldPrice?S.rS:S.rN}>
+            {filtered.map(d=><tr key={d.id} style={d.soldPrice?S.rS:!d.item?S.rNoDrop:S.rN}>
               <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
               <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
               <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
@@ -449,9 +475,10 @@ export default function App(){
           {adminSub==="registro"&&<div>
             {editDropId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
             <div style={S.form}>
-              <label style={S.lbl}>Item<select value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.sel}><option value="">Selecione...</option>{itemNames.map(i=><option key={i} value={i}>{i}</option>)}</select></label>
-              {nf.item&&<div style={S.prev}><Img name={nf.item} items={allItems}/> {nf.item}</div>}
-              <label style={S.lbl}>Boss<select value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBosses.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
+              <label style={S.lbl}>Boss
+                <input list="dl-boss" value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
+                <datalist id="dl-boss">{allBosses.map(b=><option key={b} value={b}/>)}</datalist>
+              </label>
               <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option></select></label>
               <label style={S.lbl}>Boneco
                 {allBonecos.length>0?<><select value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
@@ -469,11 +496,30 @@ export default function App(){
                   <button onClick={()=>rmSup(i)} style={S.cxBtn}>✕</button>
                 </div>)}
               </div>
-              <label style={S.lbl}>Data do Drop *<input type="date" value={nf.dropDate} onChange={e=>setNf({...nf,dropDate:e.target.value})} style={S.inp}/></label>
-              <label style={S.lbl}>Loot (KK)<input value={nf.loot} onChange={e=>setNf({...nf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
-              <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
-              <label style={S.lbl}>Tempo (min)<input value={nf.tempo} onChange={e=>setNf({...nf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{nf.tempo&&<span style={{fontSize:11,color:"#58a6ff"}}>→ {fmtMin(nf.tempo)}</span>}</label>
-              <button onClick={addDrop} style={{...S.addBtn,...(editDropId?{background:"linear-gradient(135deg,#1f6feb,#388bfd)"}:{})}}>{editDropId?"💾 Salvar Edição":"⚔️ Registrar Drop"}</button>
+              <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
+                <div style={{fontSize:13,color:"#8b949e",fontWeight:500,marginBottom:8}}>Drop de Item</div>
+                {nf.item?(
+                  <div style={{background:"rgba(35,134,54,.15)",border:"1px solid #2ea043",borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <Img name={nf.item} items={allItems}/>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600,color:"#2ecc40"}}>{nf.item}</div>
+                        <div style={{fontSize:11,color:"#8b949e"}}>{[nf.loot&&`${nf.loot}kk`,nf.servicePrice&&`${nf.servicePrice}tc`,nf.tempo&&fmtMin(nf.tempo),nf.dropDate&&fromIso(nf.dropDate)].filter(Boolean).join(" · ")}</div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={openDropModal} style={{...S.plusBtn,background:"#1f6feb",fontSize:11}}>✏️ Editar</button>
+                      <button onClick={clearDrop} style={{background:"#da3633",border:"none",color:"#fff",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✕ Remover</button>
+                    </div>
+                  </div>
+                ):(
+                  <div style={{background:"rgba(218,54,51,.08)",border:"1px dashed #484f58",borderRadius:8,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:13,color:"#484f58"}}>Nenhum drop nesta quest</span>
+                    <button onClick={openDropModal} style={{...S.plusBtn,background:"#238636"}}>📦 Adicionar Drop</button>
+                  </div>
+                )}
+              </div>
+              <button onClick={addDrop} style={{...S.addBtn,...(editDropId?{background:"linear-gradient(135deg,#1f6feb,#388bfd)"}:{})}}>{editDropId?"💾 Salvar Edição":"⚔️ Registrar Quest"}</button>
               {editDropId&&<button onClick={cancelEdit} style={{...S.addBtn,background:"#30363d",marginTop:0}}>Cancelar Edição</button>}
             </div>
             <h2 style={{...S.h2,marginTop:40}}>📋 Registros ({drops.length})</h2>
@@ -632,7 +678,7 @@ const S={
   tbl:{width:"100%",borderCollapse:"collapse",fontSize:13},
   th:{padding:"10px 12px",background:"#161b22",borderBottom:"1px solid #30363d",textAlign:"left",color:"#8b949e",fontWeight:600,fontSize:11,textTransform:"uppercase",letterSpacing:".5px",whiteSpace:"nowrap"},
   td:{padding:"8px 12px",borderBottom:"1px solid #21262d",whiteSpace:"nowrap"},
-  rN:{background:"#0d1117"},rS:{background:"rgba(35,134,54,.08)"},
+  rN:{background:"#0d1117"},rS:{background:"rgba(35,134,54,.08)"},rNoDrop:{background:"rgba(218,54,51,.07)"},
   empty:{padding:30,textAlign:"center",color:"#484f58"},
   h2:{fontSize:18,margin:"0 0 16px",color:"#e6edf3"},
   form:{display:"flex",flexDirection:"column",gap:12,maxWidth:500,background:"#161b22",padding:20,borderRadius:10,border:"1px solid #30363d"},
