@@ -633,8 +633,13 @@ export default function App(){
                 <div><div style={S.miniLbl}>R$ (vendas)</div><div style={{fontSize:24,fontWeight:700,color:"#00b894"}}>R${analytics.totalUnitReal.toFixed(2)}</div></div>
               </div>
               <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:20,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Loot Quest Total</div><div style={{fontSize:18,fontWeight:700,color:"#feca57"}}>{(analytics.lootQuestA+analytics.lootQuestB).toFixed(1)}kk</div></div>
-                <div><div style={S.miniLbl}>Service Total</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{(analytics.svcQuestA+analytics.svcQuestB).toFixed(0)}tc</div></div>
+                <div><div style={S.miniLbl}>Loot Quest Total</div><div style={{fontSize:18,fontWeight:700,color:"#feca57"}}>{(analytics.lootQuestA+analytics.lootQuestB).toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${(analytics.lootQuestARealVal+analytics.lootQuestBRealVal).toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Total</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{(analytics.svcQuestA+analytics.svcQuestB).toFixed(0)}tc</div><div style={{fontSize:10,color:"#8b949e",marginTop:2}}>÷5 = {(analytics.svcQuestAShareTC+analytics.svcQuestBShareTC).toFixed(0)}tc · R${(analytics.svcQuestAShareReal+analytics.svcQuestBShareReal).toFixed(2)}</div></div>
+              </div>
+              <div style={{borderTop:"2px solid #2ecc40",marginTop:12,paddingTop:10}}>
+                <div style={S.miniLbl}>🏆 Total Geral por Fixo (R$)</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#00b894"}}>R${(analytics.totalUnitReal+analytics.lootQuestARealVal+analytics.lootQuestBRealVal+analytics.svcQuestAShareReal+analytics.svcQuestBShareReal).toFixed(2)}</div>
+                <div style={{fontSize:10,color:"#484f58",marginTop:2}}>Unit A+B + Loot Quest A+B + (Service A+B ÷5)</div>
               </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>A+B (KK→TC→R$)</div>
             </div>
