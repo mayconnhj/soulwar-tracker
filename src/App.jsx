@@ -56,6 +56,7 @@ const DEFAULT_BOSSES = [
 const DEFAULT_FIXOS = ["Maycon","Jorge","Du","Jão","Mario"];
 const DEFAULT_TEAM_A = ["Conopcas","Verfix","Obonitao Lindão","Mad Tian"];
 const DEFAULT_TEAM_B = ["Lark Zepin","Abel Shaene","Brabubagore","Sokon Eltanke"];
+const DEFAULT_TEAM_C = [];
 const BASE_DIVISOR = 7;
 
 function Img({name,items}){
@@ -92,7 +93,7 @@ export default function App(){
   const [drops,setDrops]=useState([]);
   const [cfg,setCfg]=useState({
     password:"soulwar2026",bosses:[...DEFAULT_BOSSES],fixos:[...DEFAULT_FIXOS],bonecos:[],
-    items:{},teamA:[...DEFAULT_TEAM_A],teamB:[...DEFAULT_TEAM_B],
+    items:{},teamA:[...DEFAULT_TEAM_A],teamB:[...DEFAULT_TEAM_B],teamC:[...DEFAULT_TEAM_C],
     tcPriceReal:"53",tcPriceKK:"39",tcQty:"250",
     removedBosses:[],removedFixos:[],removedItems:[]
   });
@@ -180,6 +181,7 @@ export default function App(){
   const allBonecos=useMemo(()=>[...new Set(cfg.bonecos||[])].sort(),[cfg.bonecos]);
   const teamA=useMemo(()=>cfg.teamA||DEFAULT_TEAM_A,[cfg.teamA]);
   const teamB=useMemo(()=>cfg.teamB||DEFAULT_TEAM_B,[cfg.teamB]);
+  const teamC=useMemo(()=>cfg.teamC||DEFAULT_TEAM_C,[cfg.teamC]);
 
   const tcKK=useMemo(()=>parseFloat(String(cfg.tcPriceKK||"39").replace(",","."))||39,[cfg.tcPriceKK]);
   const tcReal=useMemo(()=>parseFloat(String(cfg.tcPriceReal||"53").replace(",","."))||53,[cfg.tcPriceReal]);
@@ -258,8 +260,9 @@ export default function App(){
     const c=(cn||"").toLowerCase();
     if(teamA.some(x=>x.toLowerCase()===c))return "A";
     if(teamB.some(x=>x.toLowerCase()===c))return "B";
+    if(teamC.some(x=>x.toLowerCase()===c))return "C";
     return null;
-  },[teamA,teamB]);
+  },[teamA,teamB,teamC]);
 
   const analytics=useMemo(()=>{
     const _kkToReal=kk=>{const tcFromKK=(kk*1000)/tcKK;return(tcFromKK/tcQty)*tcReal;};
@@ -269,10 +272,10 @@ export default function App(){
     if(aMonth)data=data.filter(d=>{const dt=parseDate(d.dropDate);if(!dt)return false;return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`===aMonth;});
 
     let totalLoot=0,totalSvcTC=0,soldKK=0,soldTC=0,totalTempo=0;
-    let lootQuestA=0,lootQuestB=0,svcQuestA=0,svcQuestB=0;
+    let lootQuestA=0,lootQuestB=0,lootQuestC=0,svcQuestA=0,svcQuestB=0,svcQuestC=0;
     data.forEach(d=>{
-      if(d.loot){const v=parseFloat(String(d.loot).replace(",","."));if(!isNaN(v)){totalLoot+=v;if(d.team==="A")lootQuestA+=v;else if(d.team==="B")lootQuestB+=v;}}
-      if(d.servicePrice){const v=parseFloat(String(d.servicePrice).replace(",","."));if(!isNaN(v)){totalSvcTC+=v;if(d.team==="A")svcQuestA+=v;else if(d.team==="B")svcQuestB+=v;}}
+      if(d.loot){const v=parseFloat(String(d.loot).replace(",","."));if(!isNaN(v)){totalLoot+=v;if(d.team==="A")lootQuestA+=v;else if(d.team==="B")lootQuestB+=v;else if(d.team==="C")lootQuestC+=v;}}
+      if(d.servicePrice){const v=parseFloat(String(d.servicePrice).replace(",","."));if(!isNaN(v)){totalSvcTC+=v;if(d.team==="A")svcQuestA+=v;else if(d.team==="B")svcQuestB+=v;else if(d.team==="C")svcQuestC+=v;}}
       if(d.tempo){const v=parseInt(d.tempo);if(!isNaN(v))totalTempo+=v;}
     });
 
@@ -288,6 +291,7 @@ export default function App(){
 
     let tAkk=0,tAtc=0,tAn=0,uAkk=0,uAtc=0;
     let tBkk=0,tBtc=0,tBn=0,uBkk=0,uBtc=0;
+    let tCkk=0,tCtc=0,tCn=0,uCkk=0,uCtc=0;
 
     soldData.forEach(d=>{
       const team=d.team||getTeam(d.char);
@@ -298,36 +302,52 @@ export default function App(){
       if(team==="A"){
         tAkk+=kk;tAtc+=tc;tAn++;
         uAkk+=kk/div;uAtc+=tc/div;
-      } else {
+      } else if(team==="B"){
         tBkk+=kk;tBtc+=tc;tBn++;
         uBkk+=kk/div;uBtc+=tc/div;
+      } else if(team==="C"){
+        tCkk+=kk;tCtc+=tc;tCn++;
+        uCkk+=kk/div;uCtc+=tc/div;
       }
     });
 
-    const totalUnitKK=uAkk+uBkk;
-    const totalUnitTC=uAtc+uBtc;
+    const totalUnitKK=uAkk+uBkk+uCkk;
+    const totalUnitTC=uAtc+uBtc+uCtc;
     const unitARealVal=_kkToReal(uAkk)+_tcToReal(uAtc);
     const unitBRealVal=_kkToReal(uBkk)+_tcToReal(uBtc);
-    const totalUnitReal=unitARealVal+unitBRealVal;
+    const unitCRealVal=_kkToReal(uCkk)+_tcToReal(uCtc);
+    const totalUnitReal=unitARealVal+unitBRealVal+unitCRealVal;
 
     const lootQuestARealVal=_kkToReal(lootQuestA);
     const lootQuestBRealVal=_kkToReal(lootQuestB);
+    const lootQuestCRealVal=_kkToReal(lootQuestC);
     const svcQuestARealVal=_tcToReal(svcQuestA);
     const svcQuestBRealVal=_tcToReal(svcQuestB);
+    const svcQuestCRealVal=_tcToReal(svcQuestC);
     // Service é dividido por 5 antes de entrar no total do time
     const SVC_DIV=5;
     const svcQuestAShareTC=svcQuestA/SVC_DIV;
     const svcQuestBShareTC=svcQuestB/SVC_DIV;
+    const svcQuestCShareTC=svcQuestC/SVC_DIV;
     const svcQuestAShareReal=_tcToReal(svcQuestAShareTC);
     const svcQuestBShareReal=_tcToReal(svcQuestBShareTC);
+    const svcQuestCShareReal=_tcToReal(svcQuestCShareTC);
+
+    const totalSvcAll=svcQuestA+svcQuestB+svcQuestC;
+    const grandTotalReal=totalUnitReal
+      +lootQuestARealVal+lootQuestBRealVal+lootQuestCRealVal
+      +svcQuestAShareReal+svcQuestBShareReal+svcQuestCShareReal;
 
     return {totalLoot,totalSvcTC,soldKK,soldTC,itemRank,charRank,dropadorRank,
       totalDrops:data.length,totalSold:soldData.length,totalTempo,
-      tAkk,tAtc,tAn,uAkk,uAtc,tBkk,tBtc,tBn,uBkk,uBtc,
-      totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal,
-      lootQuestA,lootQuestB,svcQuestA,svcQuestB,
-      lootQuestARealVal,lootQuestBRealVal,svcQuestARealVal,svcQuestBRealVal,
-      svcQuestAShareTC,svcQuestBShareTC,svcQuestAShareReal,svcQuestBShareReal};
+      tAkk,tAtc,tAn,uAkk,uAtc,tBkk,tBtc,tBn,uBkk,uBtc,tCkk,tCtc,tCn,uCkk,uCtc,
+      totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal,unitCRealVal,
+      lootQuestA,lootQuestB,lootQuestC,svcQuestA,svcQuestB,svcQuestC,
+      lootQuestARealVal,lootQuestBRealVal,lootQuestCRealVal,
+      svcQuestARealVal,svcQuestBRealVal,svcQuestCRealVal,
+      svcQuestAShareTC,svcQuestBShareTC,svcQuestCShareTC,
+      svcQuestAShareReal,svcQuestBShareReal,svcQuestCShareReal,
+      totalSvcAll,grandTotalReal};
   },[sorted,aMonth,getTeam,tcKK,tcReal,tcQty]);
 
   const doLogin = async () => {
@@ -486,7 +506,7 @@ export default function App(){
                 <input list="dl-boss" value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
                 <datalist id="dl-boss">{allBosses.map(b=><option key={b} value={b}/>)}</datalist>
               </label>
-              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option></select></label>
+              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option>{teamC.length>0&&<option value="C">🅲 Time C — {teamC.join(", ")}</option>}</select></label>
               <label style={S.lbl}>Boneco
                 {allBonecos.length>0?<><select value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
               </label>
@@ -555,7 +575,7 @@ export default function App(){
               <div style={S.dbA}><input value={newItemName} onChange={e=>setNewItemName(e.target.value)} placeholder="Nome" style={{...S.inp,flex:1}}/><input value={newItemUrl} onChange={e=>setNewItemUrl(e.target.value)} placeholder="URL img (opt)" style={{...S.inp,flex:1}}/><button onClick={addItemF} style={S.plusBtn}>+</button></div>
               <div style={S.dbL}>{itemNames.map(i=><div key={i} style={S.dbI}><div style={{display:"flex",alignItems:"center",gap:4}}><Img name={i} items={allItems}/><span style={{marginLeft:4,fontSize:12}}>{i}</span></div><button onClick={()=>rmItemF(i)} style={S.dbD}>✕</button></div>)}</div>
             </div>
-            {[{title:"🅰️ Time A",list:teamA,key:"teamA"},{title:"🅱️ Time B",list:teamB,key:"teamB"}].map(({title,list,key})=><div key={key} style={S.dbCard}><h3 style={S.dbT}>{title} ({list.length})</h3>
+            {[{title:"🅰️ Time A",list:teamA,key:"teamA"},{title:"🅱️ Time B",list:teamB,key:"teamB"},{title:"🅲 Time C",list:teamC,key:"teamC"}].map(({title,list,key})=><div key={key} style={S.dbCard}><h3 style={S.dbT}>{title} ({list.length})</h3>
               <div style={S.dbA}><input placeholder="Add boneco..." id={`_${key}`} style={{...S.inp,flex:1}} onKeyDown={e=>{if(e.key==="Enter"&&e.target.value.trim()){saveC({...cfg,[key]:[...list,e.target.value.trim()]});e.target.value="";}}} /><button onClick={()=>{const el=document.getElementById(`_${key}`);if(el?.value.trim()){saveC({...cfg,[key]:[...list,el.value.trim()]});el.value="";}}} style={S.plusBtn}>+</button></div>
               <div style={S.dbL}>{list.map((c,i)=><div key={i} style={S.dbI}><span>{c}</span><button onClick={()=>saveC({...cfg,[key]:list.filter((_,x)=>x!==i)})} style={S.dbD}>✕</button></div>)}</div>
             </div>)}
@@ -602,7 +622,7 @@ export default function App(){
               </div>
               <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
                 <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestA.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestARealVal.toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestA.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestARealVal.toFixed(2)}</div><div style={{fontSize:10,color:"#8b949e",marginTop:2}}>÷5 = {analytics.svcQuestAShareTC.toFixed(0)}tc · R${analytics.svcQuestAShareReal.toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestA.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestARealVal.toFixed(2)}</div></div>
                 <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time A (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitARealVal+analytics.lootQuestARealVal+analytics.svcQuestAShareReal).toFixed(2)}</div></div>
               </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamA.join(", ")}</div>
@@ -620,11 +640,29 @@ export default function App(){
               </div>
               <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
                 <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestB.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestBRealVal.toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestB.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestBRealVal.toFixed(2)}</div><div style={{fontSize:10,color:"#8b949e",marginTop:2}}>÷5 = {analytics.svcQuestBShareTC.toFixed(0)}tc · R${analytics.svcQuestBShareReal.toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestB.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestBRealVal.toFixed(2)}</div></div>
                 <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time B (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitBRealVal+analytics.lootQuestBRealVal+analytics.svcQuestBShareReal).toFixed(2)}</div></div>
               </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamB.join(", ")}</div>
             </div>
+            {teamC.length>0&&<div style={{background:"#161b22",border:"1px solid #d29922",borderRadius:10,padding:16,flex:"1 1 300px"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#d29922",marginBottom:10}}>🅲 Time C — {analytics.tCn} venda(s)</div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div><div style={S.miniLbl}>Total KK</div><div style={S.miniVal}>{analytics.tCkk.toFixed(1)}kk</div></div>
+                <div><div style={S.miniLbl}>Total TC</div><div style={{...S.miniVal,color:"#a29bfe"}}>{analytics.tCtc.toFixed(0)}tc</div></div>
+                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}>
+                  <div style={S.miniLbl}>Unit. KK</div><div style={{fontSize:18,fontWeight:700,color:"#2ecc40"}}>{analytics.uCkk.toFixed(1)}kk</div>
+                </div>
+                <div><div style={S.miniLbl}>Unit. TC</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.uCtc.toFixed(1)}tc</div></div>
+                <div><div style={S.miniLbl}>Unit. R$</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${analytics.unitCRealVal.toFixed(2)}</div></div>
+              </div>
+              <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
+                <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestC.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestCRealVal.toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestC.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestCRealVal.toFixed(2)}</div></div>
+                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time C (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitCRealVal+analytics.lootQuestCRealVal+analytics.svcQuestCShareReal).toFixed(2)}</div></div>
+              </div>
+              <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamC.join(", ")}</div>
+            </div>}
             <div style={{background:"#161b22",border:"2px solid #2ecc40",borderRadius:10,padding:16,flex:"1 1 220px"}}>
               <div style={{fontSize:13,fontWeight:600,color:"#2ecc40",marginBottom:10}}>🏆 Total por Fixo</div>
               <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
@@ -633,15 +671,14 @@ export default function App(){
                 <div><div style={S.miniLbl}>R$ (vendas)</div><div style={{fontSize:24,fontWeight:700,color:"#00b894"}}>R${analytics.totalUnitReal.toFixed(2)}</div></div>
               </div>
               <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:20,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Loot Quest Total</div><div style={{fontSize:18,fontWeight:700,color:"#feca57"}}>{(analytics.lootQuestA+analytics.lootQuestB).toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${(analytics.lootQuestARealVal+analytics.lootQuestBRealVal).toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Total</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{(analytics.svcQuestA+analytics.svcQuestB).toFixed(0)}tc</div><div style={{fontSize:10,color:"#8b949e",marginTop:2}}>÷5 = {(analytics.svcQuestAShareTC+analytics.svcQuestBShareTC).toFixed(0)}tc · R${(analytics.svcQuestAShareReal+analytics.svcQuestBShareReal).toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Loot Quest Total</div><div style={{fontSize:18,fontWeight:700,color:"#feca57"}}>{(analytics.lootQuestA+analytics.lootQuestB+analytics.lootQuestC).toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${(analytics.lootQuestARealVal+analytics.lootQuestBRealVal+analytics.lootQuestCRealVal).toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Total</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.totalSvcAll.toFixed(0)}tc</div></div>
               </div>
               <div style={{borderTop:"2px solid #2ecc40",marginTop:12,paddingTop:10}}>
                 <div style={S.miniLbl}>🏆 Total Geral por Fixo (R$)</div>
-                <div style={{fontSize:26,fontWeight:800,color:"#00b894"}}>R${(analytics.totalUnitReal+analytics.lootQuestARealVal+analytics.lootQuestBRealVal+analytics.svcQuestAShareReal+analytics.svcQuestBShareReal).toFixed(2)}</div>
-                <div style={{fontSize:10,color:"#484f58",marginTop:2}}>Unit A+B + Loot Quest A+B + (Service A+B ÷5)</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#00b894"}}>R${analytics.grandTotalReal.toFixed(2)}</div>
               </div>
-              <div style={{fontSize:11,color:"#484f58",marginTop:6}}>A+B (KK→TC→R$)</div>
+              <div style={{fontSize:11,color:"#484f58",marginTop:6}}>A+B{teamC.length>0?"+C":""} (KK→TC→R$)</div>
             </div>
           </div>
 

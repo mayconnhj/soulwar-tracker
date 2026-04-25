@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS drops (
 -- Adiciona coluna team se a tabela ja existe
 ALTER TABLE drops ADD COLUMN IF NOT EXISTS team TEXT DEFAULT '';
 
+-- Adiciona coluna team_c se a tabela config ja existe
+ALTER TABLE config ADD COLUMN IF NOT EXISTS team_c JSONB DEFAULT '[]'::jsonb;
+
 -- Tabela de configuracao (uma unica linha)
 CREATE TABLE IF NOT EXISTS config (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -37,6 +40,7 @@ CREATE TABLE IF NOT EXISTS config (
   items JSONB DEFAULT '{}'::jsonb,
   team_a JSONB DEFAULT '["Conopcas","Verfix","Obonitao Lindão","Mad Tian"]'::jsonb,
   team_b JSONB DEFAULT '["Lark Zepin","Abel Shaene","Brabubagore","Sokon Eltanke"]'::jsonb,
+  team_c JSONB DEFAULT '[]'::jsonb,
   tc_price_real TEXT DEFAULT '53',
   tc_price_kk TEXT DEFAULT '39',
   tc_qty TEXT DEFAULT '250',
