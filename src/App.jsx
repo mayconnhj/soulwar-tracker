@@ -338,8 +338,9 @@ export default function App(){
       +lootQuestARealVal+lootQuestBRealVal+lootQuestCRealVal
       +svcQuestAShareReal+svcQuestBShareReal+svcQuestCShareReal;
 
+    const totalDropsItems=data.filter(d=>d.item).length;
     return {totalLoot,totalSvcTC,soldKK,soldTC,itemRank,charRank,dropadorRank,
-      totalDrops:data.length,totalSold:soldData.length,totalTempo,
+      totalQuests:data.length,totalDrops:totalDropsItems,totalSold:soldData.length,totalTempo,
       tAkk,tAtc,tAn,uAkk,uAtc,tBkk,tBtc,tBn,uBkk,uBtc,tCkk,tCtc,tCn,uCkk,uCtc,
       totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal,unitCRealVal,
       lootQuestA,lootQuestB,lootQuestC,svcQuestA,svcQuestB,svcQuestC,
@@ -597,7 +598,8 @@ export default function App(){
             {aMonth&&<button onClick={()=>setAMonth("")} style={S.clearBtn}>Todos</button>}
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:24}}>
-            <StatCard label="Total Drops" value={analytics.totalDrops} color="#58a6ff"/>
+            <StatCard label="Total de Quest's" value={analytics.totalQuests} color="#58a6ff"/>
+            <StatCard label="Total de Drops" value={analytics.totalDrops} color="#a29bfe"/>
             <StatCard label="Vendidos" value={analytics.totalSold} color="#2ecc40"/>
             <StatCard label="Total Loot" value={`${analytics.totalLoot.toFixed(1)}kk`} color="#feca57"/>
             <StatCard label="Total Service" value={`${analytics.totalSvcTC.toFixed(0)}tc`} color="#48dbfb"/>
