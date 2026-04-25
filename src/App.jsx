@@ -314,13 +314,20 @@ export default function App(){
     const lootQuestBRealVal=_kkToReal(lootQuestB);
     const svcQuestARealVal=_tcToReal(svcQuestA);
     const svcQuestBRealVal=_tcToReal(svcQuestB);
+    // Service é dividido por 5 antes de entrar no total do time
+    const SVC_DIV=5;
+    const svcQuestAShareTC=svcQuestA/SVC_DIV;
+    const svcQuestBShareTC=svcQuestB/SVC_DIV;
+    const svcQuestAShareReal=_tcToReal(svcQuestAShareTC);
+    const svcQuestBShareReal=_tcToReal(svcQuestBShareTC);
 
     return {totalLoot,totalSvcTC,soldKK,soldTC,itemRank,charRank,dropadorRank,
       totalDrops:data.length,totalSold:soldData.length,totalTempo,
       tAkk,tAtc,tAn,uAkk,uAtc,tBkk,tBtc,tBn,uBkk,uBtc,
       totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal,
       lootQuestA,lootQuestB,svcQuestA,svcQuestB,
-      lootQuestARealVal,lootQuestBRealVal,svcQuestARealVal,svcQuestBRealVal};
+      lootQuestARealVal,lootQuestBRealVal,svcQuestARealVal,svcQuestBRealVal,
+      svcQuestAShareTC,svcQuestBShareTC,svcQuestAShareReal,svcQuestBShareReal};
   },[sorted,aMonth,getTeam,tcKK,tcReal,tcQty]);
 
   const doLogin = async () => {
@@ -595,8 +602,8 @@ export default function App(){
               </div>
               <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
                 <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestA.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestARealVal.toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestA.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestARealVal.toFixed(2)}</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time A (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitARealVal+analytics.lootQuestARealVal+analytics.svcQuestARealVal).toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestA.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestARealVal.toFixed(2)}</div><div style={{fontSize:10,color:"#8b949e",marginTop:2}}>÷5 = {analytics.svcQuestAShareTC.toFixed(0)}tc · R${analytics.svcQuestAShareReal.toFixed(2)}</div></div>
+                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time A (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitARealVal+analytics.lootQuestARealVal+analytics.svcQuestAShareReal).toFixed(2)}</div></div>
               </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamA.join(", ")}</div>
             </div>
@@ -613,8 +620,8 @@ export default function App(){
               </div>
               <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
                 <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestB.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestBRealVal.toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestB.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestBRealVal.toFixed(2)}</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time B (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitBRealVal+analytics.lootQuestBRealVal+analytics.svcQuestBRealVal).toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestB.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestBRealVal.toFixed(2)}</div><div style={{fontSize:10,color:"#8b949e",marginTop:2}}>÷5 = {analytics.svcQuestBShareTC.toFixed(0)}tc · R${analytics.svcQuestBShareReal.toFixed(2)}</div></div>
+                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time B (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitBRealVal+analytics.lootQuestBRealVal+analytics.svcQuestBShareReal).toFixed(2)}</div></div>
               </div>
               <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamB.join(", ")}</div>
             </div>
