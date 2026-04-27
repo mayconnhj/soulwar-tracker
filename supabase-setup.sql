@@ -21,11 +21,15 @@ CREATE TABLE IF NOT EXISTS drops (
   sold_price TEXT DEFAULT '',
   sold_date TEXT DEFAULT '',
   team TEXT DEFAULT '',
+  quest_id TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- Adiciona coluna team se a tabela ja existe
 ALTER TABLE drops ADD COLUMN IF NOT EXISTS team TEXT DEFAULT '';
+
+-- Adiciona coluna quest_id (agrupa drops da mesma soulwar) se ja existe
+ALTER TABLE drops ADD COLUMN IF NOT EXISTS quest_id TEXT DEFAULT '';
 
 -- Adiciona coluna team_c se a tabela config ja existe
 ALTER TABLE config ADD COLUMN IF NOT EXISTS team_c JSONB DEFAULT '[]'::jsonb;

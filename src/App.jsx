@@ -107,7 +107,7 @@ export default function App(){
   const [fChar,setFChar]=useState("");
   const [fDate,setFDate]=useState("");
   const [aMonth,setAMonth]=useState("");
-  const ef={boss:"",pagante:"",suplentes:[],loot:"",servicePrice:"",tempo:"",dropDate:"",drops:[]};
+  const ef={pagante:"",suplentes:[],loot:"",servicePrice:"",tempo:"",dropDate:"",drops:[]};
   const emptyDrop={item:"",boss:"",team:"",char:"",dropador:""};
   const [nf,setNf]=useState(ef);
   const [dropBuf,setDropBuf]=useState(emptyDrop);
@@ -144,6 +144,7 @@ export default function App(){
         servicePrice: d.service_price,
         tempo: d.tempo,
         team: d.team,
+        questId: d.quest_id || '',
         soldPrice: d.sold_price,
         soldDate: d.sold_date,
         createdAt: d.created_at
@@ -194,7 +195,12 @@ export default function App(){
   const upSup=(i,k,v)=>setNf(p=>({...p,suplentes:p.suplentes.map((s,x)=>x===i?{...s,[k]:v}:s)}));
 
   // Funções do modal de drop
-  const openDropModal=()=>{setDropBuf({...emptyDrop,boss:nf.boss||""});setEditDropIdx(null);setShowDropModal(true);};
+  const openDropModal=()=>{
+    // Autopreenche o boss com o do drop anterior, se houver
+    const lastBoss=nf.drops.length>0?nf.drops[nf.drops.length-1].boss||"":"";
+    setDropBuf({...emptyDrop,boss:lastBoss});
+    setEditDropIdx(null);setShowDropModal(true);
+  };
   const editDropAt=(idx)=>{setDropBuf({...nf.drops[idx]});setEditDropIdx(idx);setShowDropModal(true);};
   const saveDropModal=()=>{
     if(!dropBuf.item) return alert("Selecione um item!");
@@ -213,9 +219,11 @@ export default function App(){
     const suplentes = nf.suplentes.filter(s=>s.nome);
     if(dropList.length>0 && !nf.dropDate) return alert("Preencha a data da quest!");
     const dropDateFmt = nf.dropDate ? fromIso(nf.dropDate) : "";
+    // Gera 1 quest_id por submissao para agrupar drops da mesma soulwar
+    const questId = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
     // Campos compartilhados em toda a quest
     const questShared = {
-      pagante: nf.pagante, suplentes, dropDate: dropDateFmt
+      pagante: nf.pagante, suplentes, dropDate: dropDateFmt, questId
     };
 
     if(editDropId){
@@ -223,16 +231,16 @@ export default function App(){
       await api.updateDrop(editDropId, {
         ...questShared,
         loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
-        item: d.item || "", boss: d.boss || nf.boss || "",
+        item: d.item || "", boss: d.boss || "",
         team: d.team || "", char: d.char || "", dropador: d.dropador || ""
       });
       setEditDropId(null);
     } else if(dropList.length === 0){
-      // Quest sem drops — guarda boss/loot/svc/tempo no registro vazio
+      // Quest sem drops — guarda loot/svc/tempo no registro vazio
       await api.addDrop({
         ...questShared,
         loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
-        item: "", boss: nf.boss || "", team: "", char: "", dropador: ""
+        item: "", boss: "", team: "", char: "", dropador: ""
       });
     } else {
       // 1 registro por drop. Loot/Service/Tempo entram somente no PRIMEIRO
@@ -245,7 +253,7 @@ export default function App(){
           loot: isFirst ? (nf.loot || "") : "",
           servicePrice: isFirst ? (nf.servicePrice || "") : "",
           tempo: isFirst ? (nf.tempo || "") : "",
-          item: d.item || "", boss: d.boss || nf.boss || "",
+          item: d.item || "", boss: d.boss || "",
           team: d.team || "", char: d.char || "", dropador: d.dropador || ""
         });
       }
@@ -259,7 +267,7 @@ export default function App(){
     const dd=d.dropDate;let isoDate="";
     if(dd){const[day,mon,yr]=dd.split("/");isoDate=`${yr}-${mon}-${day}`;}
     setNf({
-      boss:d.boss||"",pagante:d.pagante||"",suplentes:d.suplentes||[],
+      pagante:d.pagante||"",suplentes:d.suplentes||[],
       loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",
       dropDate:isoDate,
       drops: d.item ? [{item:d.item,boss:d.boss||"",team:d.team||"",char:d.char||"",dropador:d.dropador||""}] : []
@@ -378,8 +386,9 @@ export default function App(){
       +svcQuestAShareReal+svcQuestBShareReal+svcQuestCShareReal;
 
     const totalDropsItems=data.filter(d=>d.item).length;
+    const questIds=new Set();data.forEach(d=>questIds.add(d.questId||d.id));
     return {totalLoot,totalSvcTC,soldKK,soldTC,itemRank,charRank,dropadorRank,
-      totalQuests:data.length,totalDrops:totalDropsItems,totalSold:soldData.length,totalTempo,
+      totalQuests:questIds.size,totalDrops:totalDropsItems,totalSold:soldData.length,totalTempo,
       tAkk,tAtc,tAn,uAkk,uAtc,tBkk,tBtc,tBn,uBkk,uBtc,tCkk,tCtc,tCn,uCkk,uCtc,
       totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal,unitCRealVal,
       lootQuestA,lootQuestB,lootQuestC,svcQuestA,svcQuestB,svcQuestC,
@@ -486,21 +495,44 @@ export default function App(){
             <input type="date" value={fDate} onChange={e=>setFDate(e.target.value)} style={S.inp}/>
             <button onClick={()=>{setFItem("");setFChar("");setFDate("");}} style={S.clearBtn}>Limpar</button>
           </div>
-          <div style={S.cnt}>{filtered.length} registro(s)</div>
+          {(()=>{
+            const qids=new Set();filtered.forEach(d=>qids.add(d.questId||d.id));
+            const dropsCount=filtered.filter(d=>d.item).length;
+            return <div style={S.cnt}>{qids.size} quest(s) · {dropsCount} drop(s)</div>;
+          })()}
           <div style={S.tw}><table style={S.tbl}><thead><tr>
             <th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Time</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Pagante</th><th style={S.th}>Suplente(s)</th><th style={S.th}>Data</th>
             {isAdmin&&<><th style={S.th}>Loot</th><th style={S.th}>Service</th><th style={S.th}>Tempo</th></>}
             <th style={S.th}>Venda</th><th style={S.th}>Dt Venda</th>
           </tr></thead><tbody>
-            {filtered.map(d=><tr key={d.id} style={d.soldPrice?S.rS:!d.item?S.rNoDrop:S.rN}>
-              <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
-              <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
-              <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
-              <td style={S.td}>{d.dropDate}</td>
-              {isAdmin&&<><td style={S.td}>{d.loot?`${d.loot}kk`:"—"}</td><td style={S.td}>{d.servicePrice?`${d.servicePrice}tc`:"—"}</td><td style={S.td}>{fmtMin(d.tempo)}</td></>}
-              <td style={S.td}>{d.soldPrice||"—"}</td><td style={S.td}>{d.soldDate||"—"}</td>
-            </tr>)}
-            {filtered.length===0&&<tr><td colSpan={isAdmin?13:10} style={S.empty}>Nenhum registro</td></tr>}
+            {(()=>{
+              // Agrupa registros por quest_id (mantem ordem do filtered)
+              const seen={};const groups=[];
+              for(const d of filtered){
+                const k=d.questId||d.id;
+                if(seen[k]===undefined){seen[k]=groups.length;groups.push([]);}
+                groups[seen[k]].push(d);
+              }
+              const rows=[];
+              groups.forEach((g,gi)=>{
+                g.forEach((d,i)=>{
+                  const isFirst=i===0;
+                  const sep=gi>0&&isFirst?{borderTop:"2px solid #58a6ff"}:{};
+                  rows.push(
+                    <tr key={d.id} style={{...(d.soldPrice?S.rS:!d.item?S.rNoDrop:S.rN),...sep}}>
+                      <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
+                      <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":d.team==="C"?"#d29922":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
+                      <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
+                      <td style={S.td}>{d.dropDate}</td>
+                      {isAdmin&&<><td style={S.td}>{d.loot?`${d.loot}kk`:"—"}</td><td style={S.td}>{d.servicePrice?`${d.servicePrice}tc`:"—"}</td><td style={S.td}>{fmtMin(d.tempo)}</td></>}
+                      <td style={S.td}>{d.soldPrice||"—"}</td><td style={S.td}>{d.soldDate||"—"}</td>
+                    </tr>
+                  );
+                });
+              });
+              if(rows.length===0)rows.push(<tr key="empty"><td colSpan={isAdmin?13:10} style={S.empty}>Nenhum registro</td></tr>);
+              return rows;
+            })()}
           </tbody></table></div>
         </div>}
 
@@ -547,10 +579,6 @@ export default function App(){
           {adminSub==="registro"&&<div>
             {editDropId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
             <div style={S.form}>
-              <label style={S.lbl}>Boss
-                <input list="dl-boss" value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
-                <datalist id="dl-boss">{allBosses.map(b=><option key={b} value={b}/>)}</datalist>
-              </label>
               <label style={S.lbl}>Pagante<input value={nf.pagante} onChange={e=>setNf({...nf,pagante:e.target.value})} style={S.inp}/></label>
               <label style={S.lbl}>Loot da Quest (KK)<input value={nf.loot} onChange={e=>setNf({...nf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
               <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
