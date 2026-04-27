@@ -107,8 +107,8 @@ export default function App(){
   const [fChar,setFChar]=useState("");
   const [fDate,setFDate]=useState("");
   const [aMonth,setAMonth]=useState("");
-  const ef={boss:"",char:"",pagante:"",dropador:"",suplentes:[],team:"",drops:[]};
-  const emptyDrop={item:"",loot:"",servicePrice:"",tempo:"",dropDate:""};
+  const ef={boss:"",pagante:"",suplentes:[],loot:"",servicePrice:"",tempo:"",dropDate:"",drops:[]};
+  const emptyDrop={item:"",boss:"",team:"",char:"",dropador:""};
   const [nf,setNf]=useState(ef);
   const [dropBuf,setDropBuf]=useState(emptyDrop);
   const [editDropIdx,setEditDropIdx]=useState(null);
@@ -194,11 +194,10 @@ export default function App(){
   const upSup=(i,k,v)=>setNf(p=>({...p,suplentes:p.suplentes.map((s,x)=>x===i?{...s,[k]:v}:s)}));
 
   // Funções do modal de drop
-  const openDropModal=()=>{setDropBuf({...emptyDrop});setEditDropIdx(null);setShowDropModal(true);};
+  const openDropModal=()=>{setDropBuf({...emptyDrop,boss:nf.boss||""});setEditDropIdx(null);setShowDropModal(true);};
   const editDropAt=(idx)=>{setDropBuf({...nf.drops[idx]});setEditDropIdx(idx);setShowDropModal(true);};
   const saveDropModal=()=>{
     if(!dropBuf.item) return alert("Selecione um item!");
-    if(!dropBuf.dropDate) return alert("Preencha a data do drop!");
     if(editDropIdx!==null){
       setNf(p=>({...p,drops:p.drops.map((d,i)=>i===editDropIdx?{...dropBuf}:d)}));
     } else {
@@ -212,34 +211,42 @@ export default function App(){
   const addDrop = async () => {
     const dropList = nf.drops || [];
     const suplentes = nf.suplentes.filter(s=>s.nome);
-    const questFields = {
-      boss: nf.boss, char: nf.char, pagante: nf.pagante,
-      dropador: nf.dropador, suplentes, team: nf.team
+    if(dropList.length>0 && !nf.dropDate) return alert("Preencha a data da quest!");
+    const dropDateFmt = nf.dropDate ? fromIso(nf.dropDate) : "";
+    // Campos compartilhados em toda a quest
+    const questShared = {
+      pagante: nf.pagante, suplentes, dropDate: dropDateFmt
     };
 
     if(editDropId){
       const d = dropList[0] || emptyDrop;
-      const dropDateFmt = d.dropDate ? fromIso(d.dropDate) : "";
       await api.updateDrop(editDropId, {
-        ...questFields,
-        item: d.item || "", dropDate: dropDateFmt,
-        loot: d.loot || "", servicePrice: d.servicePrice || "", tempo: d.tempo || ""
+        ...questShared,
+        loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
+        item: d.item || "", boss: d.boss || nf.boss || "",
+        team: d.team || "", char: d.char || "", dropador: d.dropador || ""
       });
       setEditDropId(null);
     } else if(dropList.length === 0){
-      // Quest sem drops
+      // Quest sem drops — guarda boss/loot/svc/tempo no registro vazio
       await api.addDrop({
-        ...questFields,
-        item: "", dropDate: "", loot: "", servicePrice: "", tempo: ""
+        ...questShared,
+        loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
+        item: "", boss: nf.boss || "", team: "", char: "", dropador: ""
       });
     } else {
-      // 1 registro por drop
-      for(const d of dropList){
-        const dropDateFmt = d.dropDate ? fromIso(d.dropDate) : "";
+      // 1 registro por drop. Loot/Service/Tempo entram somente no PRIMEIRO
+      // registro pra nao duplicar nos totais; demais ficam vazios nesses campos.
+      for(let i=0;i<dropList.length;i++){
+        const d = dropList[i];
+        const isFirst = i===0;
         await api.addDrop({
-          ...questFields,
-          item: d.item || "", dropDate: dropDateFmt,
-          loot: d.loot || "", servicePrice: d.servicePrice || "", tempo: d.tempo || ""
+          ...questShared,
+          loot: isFirst ? (nf.loot || "") : "",
+          servicePrice: isFirst ? (nf.servicePrice || "") : "",
+          tempo: isFirst ? (nf.tempo || "") : "",
+          item: d.item || "", boss: d.boss || nf.boss || "",
+          team: d.team || "", char: d.char || "", dropador: d.dropador || ""
         });
       }
     }
@@ -252,9 +259,10 @@ export default function App(){
     const dd=d.dropDate;let isoDate="";
     if(dd){const[day,mon,yr]=dd.split("/");isoDate=`${yr}-${mon}-${day}`;}
     setNf({
-      boss:d.boss||"",char:d.char||"",pagante:d.pagante||"",
-      dropador:d.dropador||"",suplentes:d.suplentes||[],team:d.team||"",
-      drops: d.item ? [{item:d.item,loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",dropDate:isoDate}] : []
+      boss:d.boss||"",pagante:d.pagante||"",suplentes:d.suplentes||[],
+      loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",
+      dropDate:isoDate,
+      drops: d.item ? [{item:d.item,boss:d.boss||"",team:d.team||"",char:d.char||"",dropador:d.dropador||""}] : []
     });
     setEditDropId(id);
     setAdminSub("registro");
@@ -447,15 +455,20 @@ export default function App(){
       {showDropModal&&<div style={S.overlay}><div style={{...S.modal,maxWidth:480,width:"95%"}}>
         <h3 style={{margin:"0 0 16px",color:"#e6edf3",fontSize:16}}>📦 {editDropIdx!==null?"Editar Drop":"Registrar Drop de Item"}</h3>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
-          <label style={S.lbl}>Item
+          <label style={S.lbl}>Item *
             <input list="dl-items-modal" value={dropBuf.item} onChange={e=>setDropBuf({...dropBuf,item:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
             <datalist id="dl-items-modal">{itemNames.map(i=><option key={i} value={i}/>)}</datalist>
           </label>
           {dropBuf.item&&allItems[dropBuf.item]&&<div style={S.prev}><Img name={dropBuf.item} items={allItems}/> {dropBuf.item}</div>}
-          <label style={S.lbl}>Loot (KK)<input value={dropBuf.loot} onChange={e=>setDropBuf({...dropBuf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
-          <label style={S.lbl}>Preço Service (TC)<input value={dropBuf.servicePrice} onChange={e=>setDropBuf({...dropBuf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
-          <label style={S.lbl}>Tempo (min)<input value={dropBuf.tempo} onChange={e=>setDropBuf({...dropBuf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{dropBuf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(dropBuf.tempo)}</span>}</label>
-          <label style={S.lbl}>Data do Drop *<input type="date" value={dropBuf.dropDate} onChange={e=>setDropBuf({...dropBuf,dropDate:e.target.value})} style={S.inp}/></label>
+          <label style={S.lbl}>Boss
+            <input list="dl-boss-modal" value={dropBuf.boss} onChange={e=>setDropBuf({...dropBuf,boss:e.target.value})} style={S.inp} placeholder="Boss que dropou"/>
+            <datalist id="dl-boss-modal">{allBosses.map(b=><option key={b} value={b}/>)}</datalist>
+          </label>
+          <label style={S.lbl}>Time<select value={dropBuf.team} onChange={e=>setDropBuf({...dropBuf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option>{teamC.length>0&&<option value="C">🅲 Time C — {teamC.join(", ")}</option>}</select></label>
+          <label style={S.lbl}>Dropador<input value={dropBuf.dropador} onChange={e=>setDropBuf({...dropBuf,dropador:e.target.value})} style={S.inp} placeholder="Quem pilotou"/></label>
+          <label style={S.lbl}>Boneco que dropou
+            {allBonecos.length>0?<><select value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
+          </label>
           <div style={{display:"flex",gap:8,marginTop:4}}>
             <button onClick={saveDropModal} style={{...S.addBtn,flex:1}}>✅ {editDropIdx!==null?"Salvar Alteração":"Adicionar Drop"}</button>
             <button onClick={cancelDropModal} style={{...S.addBtn,background:"#30363d",flex:1,marginTop:0}}>Cancelar</button>
@@ -538,12 +551,11 @@ export default function App(){
                 <input list="dl-boss" value={nf.boss} onChange={e=>setNf({...nf,boss:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
                 <datalist id="dl-boss">{allBosses.map(b=><option key={b} value={b}/>)}</datalist>
               </label>
-              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option>{teamC.length>0&&<option value="C">🅲 Time C — {teamC.join(", ")}</option>}</select></label>
-              <label style={S.lbl}>Boneco
-                {allBonecos.length>0?<><select value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={nf.char} onChange={e=>setNf({...nf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
-              </label>
-              <label style={S.lbl}>Dropador<input value={nf.dropador} onChange={e=>setNf({...nf,dropador:e.target.value})} style={S.inp} placeholder="Quem pilotou"/></label>
               <label style={S.lbl}>Pagante<input value={nf.pagante} onChange={e=>setNf({...nf,pagante:e.target.value})} style={S.inp}/></label>
+              <label style={S.lbl}>Loot da Quest (KK)<input value={nf.loot} onChange={e=>setNf({...nf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
+              <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
+              <label style={S.lbl}>Tempo da Quest (min)<input value={nf.tempo} onChange={e=>setNf({...nf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{nf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(nf.tempo)}</span>}</label>
+              <label style={S.lbl}>Data da Quest<input type="date" value={nf.dropDate} onChange={e=>setNf({...nf,dropDate:e.target.value})} style={S.inp}/></label>
               <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>Suplentes</span>
@@ -568,7 +580,7 @@ export default function App(){
                           <Img name={d.item} items={allItems}/>
                           <div>
                             <div style={{fontSize:13,fontWeight:600,color:"#2ecc40"}}>{d.item}</div>
-                            <div style={{fontSize:11,color:"#8b949e"}}>{[d.loot&&`${d.loot}kk`,d.servicePrice&&`${d.servicePrice}tc`,d.tempo&&fmtMin(d.tempo),d.dropDate&&fromIso(d.dropDate)].filter(Boolean).join(" · ")}</div>
+                            <div style={{fontSize:11,color:"#8b949e"}}>{[d.boss,d.team&&`Time ${d.team}`,d.char,d.dropador&&`👤 ${d.dropador}`].filter(Boolean).join(" · ")||"—"}</div>
                           </div>
                         </div>
                         <div style={{display:"flex",gap:6}}>
