@@ -107,8 +107,8 @@ export default function App(){
   const [fChar,setFChar]=useState("");
   const [fDate,setFDate]=useState("");
   const [aMonth,setAMonth]=useState("");
-  const ef={pagante:"",suplentes:[],loot:"",servicePrice:"",tempo:"",dropDate:"",drops:[]};
-  const emptyDrop={item:"",boss:"",team:"",char:"",dropador:""};
+  const ef={pagante:"",suplentes:[],loot:"",servicePrice:"",tempo:"",dropDate:"",team:"",drops:[]};
+  const emptyDrop={item:"",boss:"",char:"",dropador:""};
   const [nf,setNf]=useState(ef);
   const [dropBuf,setDropBuf]=useState(emptyDrop);
   const [editDropIdx,setEditDropIdx]=useState(null);
@@ -223,7 +223,7 @@ export default function App(){
     const questId = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
     // Campos compartilhados em toda a quest
     const questShared = {
-      pagante: nf.pagante, suplentes, dropDate: dropDateFmt, questId
+      pagante: nf.pagante, suplentes, dropDate: dropDateFmt, questId, team: nf.team || ""
     };
 
     if(editDropId){
@@ -232,7 +232,7 @@ export default function App(){
         ...questShared,
         loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
         item: d.item || "", boss: d.boss || "",
-        team: d.team || "", char: d.char || "", dropador: d.dropador || ""
+        char: d.char || "", dropador: d.dropador || ""
       });
       setEditDropId(null);
     } else if(dropList.length === 0){
@@ -240,7 +240,7 @@ export default function App(){
       await api.addDrop({
         ...questShared,
         loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
-        item: "", boss: "", team: "", char: "", dropador: ""
+        item: "", boss: "", char: "", dropador: ""
       });
     } else {
       // 1 registro por drop. Loot/Service/Tempo entram somente no PRIMEIRO
@@ -254,7 +254,7 @@ export default function App(){
           servicePrice: isFirst ? (nf.servicePrice || "") : "",
           tempo: isFirst ? (nf.tempo || "") : "",
           item: d.item || "", boss: d.boss || "",
-          team: d.team || "", char: d.char || "", dropador: d.dropador || ""
+          char: d.char || "", dropador: d.dropador || ""
         });
       }
     }
@@ -269,8 +269,8 @@ export default function App(){
     setNf({
       pagante:d.pagante||"",suplentes:d.suplentes||[],
       loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",
-      dropDate:isoDate,
-      drops: d.item ? [{item:d.item,boss:d.boss||"",team:d.team||"",char:d.char||"",dropador:d.dropador||""}] : []
+      dropDate:isoDate,team:d.team||"",
+      drops: d.item ? [{item:d.item,boss:d.boss||"",char:d.char||"",dropador:d.dropador||""}] : []
     });
     setEditDropId(id);
     setAdminSub("registro");
@@ -473,7 +473,6 @@ export default function App(){
             <input list="dl-boss-modal" value={dropBuf.boss} onChange={e=>setDropBuf({...dropBuf,boss:e.target.value})} style={S.inp} placeholder="Boss que dropou"/>
             <datalist id="dl-boss-modal">{allBosses.map(b=><option key={b} value={b}/>)}</datalist>
           </label>
-          <label style={S.lbl}>Time<select value={dropBuf.team} onChange={e=>setDropBuf({...dropBuf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option>{teamC.length>0&&<option value="C">🅲 Time C — {teamC.join(", ")}</option>}</select></label>
           <label style={S.lbl}>Dropador<input value={dropBuf.dropador} onChange={e=>setDropBuf({...dropBuf,dropador:e.target.value})} style={S.inp} placeholder="Quem pilotou"/></label>
           <label style={S.lbl}>Boneco que dropou
             {allBonecos.length>0?<><select value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
@@ -515,11 +514,14 @@ export default function App(){
               }
               const rows=[];
               groups.forEach((g,gi)=>{
+                const isMulti=g.length>1;
                 g.forEach((d,i)=>{
                   const isFirst=i===0;
                   const sep=gi>0&&isFirst?{borderTop:"2px solid #58a6ff"}:{};
+                  // Quests com 2+ drops ficam azuis sempre (mesmo vendidos)
+                  const base=isMulti?{background:"rgba(31,111,235,.14)"}:(d.soldPrice?S.rS:!d.item?S.rNoDrop:S.rN);
                   rows.push(
-                    <tr key={d.id} style={{...(d.soldPrice?S.rS:!d.item?S.rNoDrop:S.rN),...sep}}>
+                    <tr key={d.id} style={{...base,...sep}}>
                       <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
                       <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":d.team==="C"?"#d29922":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
                       <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
@@ -580,6 +582,7 @@ export default function App(){
             {editDropId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
             <div style={S.form}>
               <label style={S.lbl}>Pagante<input value={nf.pagante} onChange={e=>setNf({...nf,pagante:e.target.value})} style={S.inp}/></label>
+              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option>{teamC.length>0&&<option value="C">🅲 Time C — {teamC.join(", ")}</option>}</select></label>
               <label style={S.lbl}>Loot da Quest (KK)<input value={nf.loot} onChange={e=>setNf({...nf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
               <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
               <label style={S.lbl}>Tempo da Quest (min)<input value={nf.tempo} onChange={e=>setNf({...nf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{nf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(nf.tempo)}</span>}</label>
@@ -608,7 +611,7 @@ export default function App(){
                           <Img name={d.item} items={allItems}/>
                           <div>
                             <div style={{fontSize:13,fontWeight:600,color:"#2ecc40"}}>{d.item}</div>
-                            <div style={{fontSize:11,color:"#8b949e"}}>{[d.boss,d.team&&`Time ${d.team}`,d.char,d.dropador&&`👤 ${d.dropador}`].filter(Boolean).join(" · ")||"—"}</div>
+                            <div style={{fontSize:11,color:"#8b949e"}}>{[d.boss,d.char,d.dropador&&`👤 ${d.dropador}`].filter(Boolean).join(" · ")||"—"}</div>
                           </div>
                         </div>
                         <div style={{display:"flex",gap:6}}>
