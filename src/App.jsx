@@ -107,8 +107,11 @@ export default function App(){
   const [fChar,setFChar]=useState("");
   const [fDate,setFDate]=useState("");
   const [aMonth,setAMonth]=useState("");
-  const ef={item:"",boss:"",char:"",pagante:"",dropDate:"",dropador:"",suplentes:[],loot:"",servicePrice:"",tempo:"",team:""};
+  const ef={boss:"",char:"",pagante:"",dropador:"",suplentes:[],team:"",drops:[]};
+  const emptyDrop={item:"",loot:"",servicePrice:"",tempo:"",dropDate:""};
   const [nf,setNf]=useState(ef);
+  const [dropBuf,setDropBuf]=useState(emptyDrop);
+  const [editDropIdx,setEditDropIdx]=useState(null);
   const [editId,setEditId]=useState(null);
   const [salePrice,setSalePrice]=useState("");
   const [saleDate,setSaleDate]=useState("");
@@ -122,7 +125,6 @@ export default function App(){
   const [confirmDel,setConfirmDel]=useState(null);
   const [editDropId,setEditDropId]=useState(null);
   const [showDropModal,setShowDropModal]=useState(false);
-  const [dropSnap,setDropSnap]=useState(null);
 
   // ── Load data from API ──────────────────────────────────────────
   const load = useCallback(async () => {
@@ -192,29 +194,54 @@ export default function App(){
   const upSup=(i,k,v)=>setNf(p=>({...p,suplentes:p.suplentes.map((s,x)=>x===i?{...s,[k]:v}:s)}));
 
   // Funções do modal de drop
-  const openDropModal=()=>{setDropSnap({item:nf.item,loot:nf.loot,servicePrice:nf.servicePrice,tempo:nf.tempo,dropDate:nf.dropDate});setShowDropModal(true);};
-  const saveDropModal=()=>setShowDropModal(false);
-  const cancelDropModal=()=>{if(dropSnap)setNf(p=>({...p,...dropSnap}));setShowDropModal(false);};
-  const clearDrop=()=>setNf(p=>({...p,item:"",loot:"",servicePrice:"",tempo:"",dropDate:""}));
+  const openDropModal=()=>{setDropBuf({...emptyDrop});setEditDropIdx(null);setShowDropModal(true);};
+  const editDropAt=(idx)=>{setDropBuf({...nf.drops[idx]});setEditDropIdx(idx);setShowDropModal(true);};
+  const saveDropModal=()=>{
+    if(!dropBuf.item) return alert("Selecione um item!");
+    if(!dropBuf.dropDate) return alert("Preencha a data do drop!");
+    if(editDropIdx!==null){
+      setNf(p=>({...p,drops:p.drops.map((d,i)=>i===editDropIdx?{...dropBuf}:d)}));
+    } else {
+      setNf(p=>({...p,drops:[...(p.drops||[]),{...dropBuf}]}));
+    }
+    setShowDropModal(false);setEditDropIdx(null);setDropBuf({...emptyDrop});
+  };
+  const cancelDropModal=()=>{setShowDropModal(false);setEditDropIdx(null);setDropBuf({...emptyDrop});};
+  const removeDropAt=(idx)=>setNf(p=>({...p,drops:p.drops.filter((_,i)=>i!==idx)}));
 
   const addDrop = async () => {
-    if(nf.item&&!nf.dropDate) return alert("Preencha a data do drop!");
-    const dropDateFmt = nf.dropDate ? fromIso(nf.dropDate) : "";
+    const dropList = nf.drops || [];
     const suplentes = nf.suplentes.filter(s=>s.nome);
+    const questFields = {
+      boss: nf.boss, char: nf.char, pagante: nf.pagante,
+      dropador: nf.dropador, suplentes, team: nf.team
+    };
 
     if(editDropId){
+      const d = dropList[0] || emptyDrop;
+      const dropDateFmt = d.dropDate ? fromIso(d.dropDate) : "";
       await api.updateDrop(editDropId, {
-        item: nf.item, boss: nf.boss, char: nf.char, pagante: nf.pagante,
-        dropDate: dropDateFmt, dropador: nf.dropador, suplentes,
-        loot: nf.loot, servicePrice: nf.servicePrice, tempo: nf.tempo, team: nf.team
+        ...questFields,
+        item: d.item || "", dropDate: dropDateFmt,
+        loot: d.loot || "", servicePrice: d.servicePrice || "", tempo: d.tempo || ""
       });
       setEditDropId(null);
-    } else {
+    } else if(dropList.length === 0){
+      // Quest sem drops
       await api.addDrop({
-        item: nf.item, boss: nf.boss, char: nf.char, pagante: nf.pagante,
-        dropDate: dropDateFmt, dropador: nf.dropador, suplentes,
-        loot: nf.loot, servicePrice: nf.servicePrice, tempo: nf.tempo, team: nf.team
+        ...questFields,
+        item: "", dropDate: "", loot: "", servicePrice: "", tempo: ""
       });
+    } else {
+      // 1 registro por drop
+      for(const d of dropList){
+        const dropDateFmt = d.dropDate ? fromIso(d.dropDate) : "";
+        await api.addDrop({
+          ...questFields,
+          item: d.item || "", dropDate: dropDateFmt,
+          loot: d.loot || "", servicePrice: d.servicePrice || "", tempo: d.tempo || ""
+        });
+      }
     }
     setNf({...ef});
     await load(); // Refresh from DB
@@ -224,7 +251,11 @@ export default function App(){
     const d=drops.find(x=>x.id===id);if(!d)return;
     const dd=d.dropDate;let isoDate="";
     if(dd){const[day,mon,yr]=dd.split("/");isoDate=`${yr}-${mon}-${day}`;}
-    setNf({item:d.item||"",boss:d.boss||"",char:d.char||"",pagante:d.pagante||"",dropDate:isoDate,dropador:d.dropador||"",suplentes:d.suplentes||[],loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",team:d.team||""});
+    setNf({
+      boss:d.boss||"",char:d.char||"",pagante:d.pagante||"",
+      dropador:d.dropador||"",suplentes:d.suplentes||[],team:d.team||"",
+      drops: d.item ? [{item:d.item,loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",dropDate:isoDate}] : []
+    });
     setEditDropId(id);
     setAdminSub("registro");
     window.scrollTo({top:0,behavior:"smooth"});
@@ -414,19 +445,19 @@ export default function App(){
       </div></div>}
 
       {showDropModal&&<div style={S.overlay}><div style={{...S.modal,maxWidth:480,width:"95%"}}>
-        <h3 style={{margin:"0 0 16px",color:"#e6edf3",fontSize:16}}>📦 Registrar Drop de Item</h3>
+        <h3 style={{margin:"0 0 16px",color:"#e6edf3",fontSize:16}}>📦 {editDropIdx!==null?"Editar Drop":"Registrar Drop de Item"}</h3>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <label style={S.lbl}>Item
-            <input list="dl-items-modal" value={nf.item} onChange={e=>setNf({...nf,item:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
+            <input list="dl-items-modal" value={dropBuf.item} onChange={e=>setDropBuf({...dropBuf,item:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
             <datalist id="dl-items-modal">{itemNames.map(i=><option key={i} value={i}/>)}</datalist>
           </label>
-          {nf.item&&allItems[nf.item]&&<div style={S.prev}><Img name={nf.item} items={allItems}/> {nf.item}</div>}
-          <label style={S.lbl}>Loot (KK)<input value={nf.loot} onChange={e=>setNf({...nf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
-          <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
-          <label style={S.lbl}>Tempo (min)<input value={nf.tempo} onChange={e=>setNf({...nf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{nf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(nf.tempo)}</span>}</label>
-          <label style={S.lbl}>Data do Drop *<input type="date" value={nf.dropDate} onChange={e=>setNf({...nf,dropDate:e.target.value})} style={S.inp}/></label>
+          {dropBuf.item&&allItems[dropBuf.item]&&<div style={S.prev}><Img name={dropBuf.item} items={allItems}/> {dropBuf.item}</div>}
+          <label style={S.lbl}>Loot (KK)<input value={dropBuf.loot} onChange={e=>setDropBuf({...dropBuf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
+          <label style={S.lbl}>Preço Service (TC)<input value={dropBuf.servicePrice} onChange={e=>setDropBuf({...dropBuf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
+          <label style={S.lbl}>Tempo (min)<input value={dropBuf.tempo} onChange={e=>setDropBuf({...dropBuf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{dropBuf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(dropBuf.tempo)}</span>}</label>
+          <label style={S.lbl}>Data do Drop *<input type="date" value={dropBuf.dropDate} onChange={e=>setDropBuf({...dropBuf,dropDate:e.target.value})} style={S.inp}/></label>
           <div style={{display:"flex",gap:8,marginTop:4}}>
-            <button onClick={saveDropModal} style={{...S.addBtn,flex:1}}>✅ Salvar Drop</button>
+            <button onClick={saveDropModal} style={{...S.addBtn,flex:1}}>✅ {editDropIdx!==null?"Salvar Alteração":"Adicionar Drop"}</button>
             <button onClick={cancelDropModal} style={{...S.addBtn,background:"#30363d",flex:1,marginTop:0}}>Cancelar</button>
           </div>
         </div>
@@ -525,25 +556,31 @@ export default function App(){
                 </div>)}
               </div>
               <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
-                <div style={{fontSize:13,color:"#8b949e",fontWeight:500,marginBottom:8}}>Drop de Item</div>
-                {nf.item?(
-                  <div style={{background:"rgba(35,134,54,.15)",border:"1px solid #2ea043",borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <Img name={nf.item} items={allItems}/>
-                      <div>
-                        <div style={{fontSize:13,fontWeight:600,color:"#2ecc40"}}>{nf.item}</div>
-                        <div style={{fontSize:11,color:"#8b949e"}}>{[nf.loot&&`${nf.loot}kk`,nf.servicePrice&&`${nf.servicePrice}tc`,nf.tempo&&fmtMin(nf.tempo),nf.dropDate&&fromIso(nf.dropDate)].filter(Boolean).join(" · ")}</div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>Drops de Item {nf.drops.length>0&&<span style={{color:"#2ecc40"}}>({nf.drops.length})</span>}</span>
+                  {!editDropId&&<button onClick={openDropModal} style={{...S.plusBtn,background:"#238636"}}>📦 + Adicionar Drop</button>}
+                </div>
+                {nf.drops.length>0?(
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {nf.drops.map((d,idx)=>(
+                      <div key={idx} style={{background:"rgba(35,134,54,.15)",border:"1px solid #2ea043",borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <Img name={d.item} items={allItems}/>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:600,color:"#2ecc40"}}>{d.item}</div>
+                            <div style={{fontSize:11,color:"#8b949e"}}>{[d.loot&&`${d.loot}kk`,d.servicePrice&&`${d.servicePrice}tc`,d.tempo&&fmtMin(d.tempo),d.dropDate&&fromIso(d.dropDate)].filter(Boolean).join(" · ")}</div>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button onClick={()=>editDropAt(idx)} style={{...S.plusBtn,background:"#1f6feb",fontSize:11}}>✏️ Editar</button>
+                          <button onClick={()=>removeDropAt(idx)} style={{background:"#da3633",border:"none",color:"#fff",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✕ Remover</button>
+                        </div>
                       </div>
-                    </div>
-                    <div style={{display:"flex",gap:6}}>
-                      <button onClick={openDropModal} style={{...S.plusBtn,background:"#1f6feb",fontSize:11}}>✏️ Editar</button>
-                      <button onClick={clearDrop} style={{background:"#da3633",border:"none",color:"#fff",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11}}>✕ Remover</button>
-                    </div>
+                    ))}
                   </div>
                 ):(
-                  <div style={{background:"rgba(218,54,51,.08)",border:"1px dashed #484f58",borderRadius:8,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span style={{fontSize:13,color:"#484f58"}}>Nenhum drop nesta quest</span>
-                    <button onClick={openDropModal} style={{...S.plusBtn,background:"#238636"}}>📦 Adicionar Drop</button>
+                  <div style={{background:"rgba(218,54,51,.08)",border:"1px dashed #484f58",borderRadius:8,padding:"12px 16px",textAlign:"center"}}>
+                    <span style={{fontSize:13,color:"#484f58"}}>Nenhum drop nesta quest{!editDropId&&" — clique em + Adicionar Drop para incluir um item"}</span>
                   </div>
                 )}
               </div>
