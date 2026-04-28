@@ -5,7 +5,7 @@
 -- Dashboard > SQL Editor > New Query > Cole tudo > Run
 -- ============================================
 
--- Tabela de drops (cada item dropado)
+-- ── Tabela de drops (item dropado) ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS drops (
   id TEXT PRIMARY KEY,
   item TEXT NOT NULL DEFAULT '',
@@ -25,16 +25,47 @@ CREATE TABLE IF NOT EXISTS drops (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Adiciona coluna team se a tabela ja existe
 ALTER TABLE drops ADD COLUMN IF NOT EXISTS team TEXT DEFAULT '';
-
--- Adiciona coluna quest_id (agrupa drops da mesma soulwar) se ja existe
 ALTER TABLE drops ADD COLUMN IF NOT EXISTS quest_id TEXT DEFAULT '';
 
--- Adiciona coluna team_c se a tabela config ja existe
-ALTER TABLE config ADD COLUMN IF NOT EXISTS team_c JSONB DEFAULT '[]'::jsonb;
+-- ── Tabela de quests (uma execucao da soulwar) ────────────────────────
+CREATE TABLE IF NOT EXISTS quests (
+  id TEXT PRIMARY KEY,
+  drop_date TEXT DEFAULT '',
+  pagante TEXT DEFAULT '',
+  team TEXT DEFAULT '',
+  suplentes JSONB DEFAULT '[]'::jsonb,
+  loot TEXT DEFAULT '',
+  service_price TEXT DEFAULT '',
+  tempo TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
 
--- Tabela de configuracao (uma unica linha)
+ALTER TABLE quests ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='quests' AND policyname='Allow all on quests') THEN
+    CREATE POLICY "Allow all on quests" ON quests FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- ── MIGRACAO de dados existentes em drops -> quests ───────────────────
+-- Garante que toda drop tenha um quest_id
+UPDATE drops SET quest_id = id WHERE COALESCE(quest_id, '') = '';
+
+-- Cria 1 linha em quests para cada quest_id existente em drops.
+-- Quando varias drops compartilham o mesmo quest_id, prefere a linha
+-- que ja tinha loot/service/tempo preenchidos (era a "primeira drop").
+INSERT INTO quests (id, drop_date, pagante, team, suplentes, loot, service_price, tempo, created_at)
+SELECT DISTINCT ON (quest_id)
+  quest_id, drop_date, pagante, team, suplentes, loot, service_price, tempo, created_at
+FROM drops
+WHERE quest_id IS NOT NULL AND quest_id != ''
+ORDER BY quest_id,
+  (CASE WHEN COALESCE(loot,'')!='' OR COALESCE(service_price,'')!='' OR COALESCE(tempo,'')!='' THEN 0 ELSE 1 END),
+  created_at
+ON CONFLICT (id) DO NOTHING;
+
+-- ── Tabela de configuracao ────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS config (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   password TEXT DEFAULT 'soulwar2026',
@@ -52,17 +83,22 @@ CREATE TABLE IF NOT EXISTS config (
   removed_fixos JSONB DEFAULT '[]'::jsonb,
   removed_items JSONB DEFAULT '[]'::jsonb
 );
+ALTER TABLE config ADD COLUMN IF NOT EXISTS team_c JSONB DEFAULT '[]'::jsonb;
 
--- Insere config padrao se nao existir
 INSERT INTO config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
--- Desativa RLS para simplificar (o app ja tem senha propria)
 ALTER TABLE drops ENABLE ROW LEVEL SECURITY;
 ALTER TABLE config ENABLE ROW LEVEL SECURITY;
 
--- Politicas permissivas (acesso via service_role key)
-CREATE POLICY "Allow all on drops" ON drops FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on config" ON config FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='drops' AND policyname='Allow all on drops') THEN
+    CREATE POLICY "Allow all on drops" ON drops FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='config' AND policyname='Allow all on config') THEN
+    CREATE POLICY "Allow all on config" ON config FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
--- Indice para ordenar drops por data de criacao
 CREATE INDEX IF NOT EXISTS idx_drops_created_at ON drops (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_drops_quest_id ON drops (quest_id);
+CREATE INDEX IF NOT EXISTS idx_quests_created_at ON quests (created_at DESC);

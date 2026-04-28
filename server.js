@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import {
-  getDrops, addDrop, updateDrop, deleteDrop,
+  getQuests, addQuest, updateQuest, deleteQuest,
+  updateDropSale,
   getConfig, saveConfig, checkPassword
 } from './lib/supabase.js';
 import { createToken, requireAuth } from './lib/auth.js';
@@ -22,54 +23,66 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// Serve static files from Vite build in production
 const distPath = join(__dirname, 'dist');
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
 }
 
-// ── Drops CRUD ──────────────────────────────────────────────────────
+// ── Quests CRUD ─────────────────────────────────────────────────────
 
-app.get('/api/drops', async (req, res) => {
+app.get('/api/quests', async (req, res) => {
   try {
-    const drops = await getDrops();
-    res.json(drops);
+    const data = await getQuests();
+    res.json(data);
   } catch (err) {
-    console.error('GET /api/drops error:', err);
+    console.error('GET /api/quests error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/drops', async (req, res) => {
+app.post('/api/quests', async (req, res) => {
   if (!requireAuth(req, res)) return;
   try {
-    const drop = await addDrop(req.body);
-    res.json(drop);
+    const quest = await addQuest(req.body);
+    res.json(quest);
   } catch (err) {
-    console.error('POST /api/drops error:', err);
+    console.error('POST /api/quests error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/drops/:id', async (req, res) => {
+app.put('/api/quests/:id', async (req, res) => {
   if (!requireAuth(req, res)) return;
   try {
-    const drop = await updateDrop(req.params.id, req.body);
-    res.json(drop);
+    const quest = await updateQuest(req.params.id, req.body);
+    res.json(quest);
   } catch (err) {
-    console.error('PUT /api/drops error:', err);
-    if (err.code === 'PGRST116') return res.status(404).json({ error: 'Drop not found' });
+    console.error('PUT /api/quests/:id error:', err);
+    if (err.code === 'PGRST116') return res.status(404).json({ error: 'Quest not found' });
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/drops/:id', async (req, res) => {
+app.delete('/api/quests/:id', async (req, res) => {
   if (!requireAuth(req, res)) return;
   try {
-    const result = await deleteDrop(req.params.id);
+    const result = await deleteQuest(req.params.id);
     res.json(result);
   } catch (err) {
-    console.error('DELETE /api/drops error:', err);
+    console.error('DELETE /api/quests/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Drops: venda individual ─────────────────────────────────────────
+
+app.put('/api/drops/:id/sale', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  try {
+    const drop = await updateDropSale(req.params.id, req.body);
+    res.json(drop);
+  } catch (err) {
+    console.error('PUT /api/drops/:id/sale error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -120,5 +133,5 @@ if (existsSync(distPath)) {
 
 app.listen(PORT, () => {
   console.log(`🚀 Soulwar Tracker API rodando em http://localhost:${PORT}`);
-  console.log(`🗄️  Banco de dados: Supabase (PostgreSQL)`);
+  console.log(`🗄️  Banco de dados: Supabase (PostgreSQL) - modelo quests + drops`);
 });

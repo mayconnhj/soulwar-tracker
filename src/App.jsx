@@ -13,10 +13,11 @@ function authHeaders() {
 }
 
 const api = {
-  async getDrops() { const r = await fetch(`${API}/drops`); return r.json(); },
-  async addDrop(data) { const r = await fetch(`${API}/drops`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
-  async updateDrop(id, data) { const r = await fetch(`${API}/drops/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
-  async deleteDrop(id) { const r = await fetch(`${API}/drops/${id}`, { method: 'DELETE', headers: authHeaders() }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
+  async getQuests() { const r = await fetch(`${API}/quests`); return r.json(); },
+  async addQuest(data) { const r = await fetch(`${API}/quests`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
+  async updateQuest(id, data) { const r = await fetch(`${API}/quests/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
+  async deleteQuest(id) { const r = await fetch(`${API}/quests/${id}`, { method: 'DELETE', headers: authHeaders() }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
+  async updateDropSale(dropId, data) { const r = await fetch(`${API}/drops/${dropId}/sale`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
   async getConfig() { const r = await fetch(`${API}/config`); return r.json(); },
   async saveConfig(data) { const r = await fetch(`${API}/config`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
   async login(password) { const r = await fetch(`${API}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); return r; },
@@ -90,7 +91,8 @@ function MiniBar({data,lk,vk,color,mx}){
 }
 
 export default function App(){
-  const [drops,setDrops]=useState([]);
+  // quests é a fonte de verdade; cada quest tem .drops (array)
+  const [quests,setQuests]=useState([]);
   const [cfg,setCfg]=useState({
     password:"soulwar2026",bosses:[...DEFAULT_BOSSES],fixos:[...DEFAULT_FIXOS],bonecos:[],
     items:{},teamA:[...DEFAULT_TEAM_A],teamB:[...DEFAULT_TEAM_B],teamC:[...DEFAULT_TEAM_C],
@@ -111,7 +113,7 @@ export default function App(){
   const emptyDrop={item:"",boss:"",char:"",dropador:""};
   const [nf,setNf]=useState(ef);
   const [dropBuf,setDropBuf]=useState(emptyDrop);
-  const [editDropIdx,setEditDropIdx]=useState(null);
+  const [editQuestIdx,setEditDropIdx]=useState(null);
   const [editId,setEditId]=useState(null);
   const [salePrice,setSalePrice]=useState("");
   const [saleDate,setSaleDate]=useState("");
@@ -123,33 +125,14 @@ export default function App(){
   const [newPass,setNewPass]=useState("");
   const [newPassC,setNewPassC]=useState("");
   const [confirmDel,setConfirmDel]=useState(null);
-  const [editDropId,setEditDropId]=useState(null);
+  const [editQuestId,setEditQuestId]=useState(null);
   const [showDropModal,setShowDropModal]=useState(false);
 
   // ── Load data from API ──────────────────────────────────────────
   const load = useCallback(async () => {
     try {
-      const [dropsData, cfgData] = await Promise.all([api.getDrops(), api.getConfig()]);
-      // Map DB fields to frontend fields
-      const mapped = dropsData.map(d => ({
-        id: d.id,
-        item: d.item,
-        boss: d.boss,
-        char: d.char,
-        pagante: d.pagante,
-        dropDate: d.drop_date,
-        dropador: d.dropador,
-        suplentes: d.suplentes || [],
-        loot: d.loot,
-        servicePrice: d.service_price,
-        tempo: d.tempo,
-        team: d.team,
-        questId: d.quest_id || '',
-        soldPrice: d.sold_price,
-        soldDate: d.sold_date,
-        createdAt: d.created_at
-      }));
-      setDrops(mapped);
+      const [questsData, cfgData] = await Promise.all([api.getQuests(), api.getConfig()]);
+      setQuests(Array.isArray(questsData) ? questsData : []);
       if (cfgData && Object.keys(cfgData).length > 0) {
         setCfg(prev => ({ ...prev, ...cfgData }));
       }
@@ -204,8 +187,8 @@ export default function App(){
   const editDropAt=(idx)=>{setDropBuf({...nf.drops[idx]});setEditDropIdx(idx);setShowDropModal(true);};
   const saveDropModal=()=>{
     if(!dropBuf.item) return alert("Selecione um item!");
-    if(editDropIdx!==null){
-      setNf(p=>({...p,drops:p.drops.map((d,i)=>i===editDropIdx?{...dropBuf}:d)}));
+    if(editQuestIdx!==null){
+      setNf(p=>({...p,drops:p.drops.map((d,i)=>i===editQuestIdx?{...dropBuf}:d)}));
     } else {
       setNf(p=>({...p,drops:[...(p.drops||[]),{...dropBuf}]}));
     }
@@ -214,94 +197,158 @@ export default function App(){
   const cancelDropModal=()=>{setShowDropModal(false);setEditDropIdx(null);setDropBuf({...emptyDrop});};
   const removeDropAt=(idx)=>setNf(p=>({...p,drops:p.drops.filter((_,i)=>i!==idx)}));
 
-  const addDrop = async () => {
+  // Submit: cria 1 quest com seus drops, ou edita uma quest existente.
+  const saveQuest = async () => {
     const dropList = nf.drops || [];
     const suplentes = nf.suplentes.filter(s=>s.nome);
     if(dropList.length>0 && !nf.dropDate) return alert("Preencha a data da quest!");
     const dropDateFmt = nf.dropDate ? fromIso(nf.dropDate) : "";
-    // Gera 1 quest_id por submissao para agrupar drops da mesma soulwar
-    const questId = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
-    // Campos compartilhados em toda a quest
-    const questShared = {
-      pagante: nf.pagante, suplentes, dropDate: dropDateFmt, questId, team: nf.team || ""
+
+    const payload = {
+      dropDate: dropDateFmt,
+      pagante: nf.pagante || "",
+      team: nf.team || "",
+      suplentes,
+      loot: nf.loot || "",
+      servicePrice: nf.servicePrice || "",
+      tempo: nf.tempo || "",
+      drops: dropList.map(d => ({
+        id: d.id, // pode ser undefined (drop novo) ou string (drop existente)
+        item: d.item || "",
+        boss: d.boss || "",
+        char: d.char || "",
+        dropador: d.dropador || "",
+        soldPrice: d.soldPrice || "",
+        soldDate: d.soldDate || ""
+      }))
     };
 
-    if(editDropId){
-      const d = dropList[0] || emptyDrop;
-      await api.updateDrop(editDropId, {
-        ...questShared,
-        loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
-        item: d.item || "", boss: d.boss || "",
-        char: d.char || "", dropador: d.dropador || ""
-      });
-      setEditDropId(null);
-    } else if(dropList.length === 0){
-      // Quest sem drops — guarda loot/svc/tempo no registro vazio
-      await api.addDrop({
-        ...questShared,
-        loot: nf.loot || "", servicePrice: nf.servicePrice || "", tempo: nf.tempo || "",
-        item: "", boss: "", char: "", dropador: ""
-      });
+    if(editQuestId){
+      await api.updateQuest(editQuestId, payload);
+      setEditQuestId(null);
     } else {
-      // 1 registro por drop. Loot/Service/Tempo entram somente no PRIMEIRO
-      // registro pra nao duplicar nos totais; demais ficam vazios nesses campos.
-      for(let i=0;i<dropList.length;i++){
-        const d = dropList[i];
-        const isFirst = i===0;
-        await api.addDrop({
-          ...questShared,
-          loot: isFirst ? (nf.loot || "") : "",
-          servicePrice: isFirst ? (nf.servicePrice || "") : "",
-          tempo: isFirst ? (nf.tempo || "") : "",
-          item: d.item || "", boss: d.boss || "",
-          char: d.char || "", dropador: d.dropador || ""
-        });
-      }
+      await api.addQuest(payload);
     }
     setNf({...ef});
-    await load(); // Refresh from DB
+    await load();
   };
 
-  const startEditDrop=id=>{
-    const d=drops.find(x=>x.id===id);if(!d)return;
-    const dd=d.dropDate;let isoDate="";
+  const startEditQuest = id => {
+    const q = quests.find(x => x.id === id); if(!q) return;
+    const dd = q.dropDate; let isoDate = "";
     if(dd){const[day,mon,yr]=dd.split("/");isoDate=`${yr}-${mon}-${day}`;}
     setNf({
-      pagante:d.pagante||"",suplentes:d.suplentes||[],
-      loot:d.loot||"",servicePrice:d.servicePrice||"",tempo:d.tempo||"",
-      dropDate:isoDate,team:d.team||"",
-      drops: d.item ? [{item:d.item,boss:d.boss||"",char:d.char||"",dropador:d.dropador||""}] : []
+      pagante: q.pagante || "",
+      suplentes: q.suplentes || [],
+      loot: q.loot || "",
+      servicePrice: q.servicePrice || "",
+      tempo: q.tempo || "",
+      dropDate: isoDate,
+      team: q.team || "",
+      drops: (q.drops || []).map(d => ({
+        id: d.id,
+        item: d.item || "",
+        boss: d.boss || "",
+        char: d.char || "",
+        dropador: d.dropador || "",
+        soldPrice: d.soldPrice || "",
+        soldDate: d.soldDate || ""
+      }))
     });
-    setEditDropId(id);
+    setEditQuestId(id);
     setAdminSub("registro");
     window.scrollTo({top:0,behavior:"smooth"});
   };
-  const cancelEdit=()=>{setEditDropId(null);setNf({...ef});};
+  const cancelEdit = () => { setEditQuestId(null); setNf({...ef}); };
 
-  const saveSale = async (id) => {
-    await api.updateDrop(id, { soldPrice: salePrice, soldDate: fromIso(saleDate) });
+  // Marcar venda de UM drop específico
+  const saveSale = async (dropId) => {
+    await api.updateDropSale(dropId, { soldPrice: salePrice, soldDate: fromIso(saleDate) });
     setEditId(null); setSalePrice(""); setSaleDate("");
     await load();
   };
 
-  const startDel=id=>setConfirmDel(id);
+  const startDel = id => setConfirmDel(id);
   const doDel = async () => {
     if(confirmDel){
-      await api.deleteDrop(confirmDel);
+      await api.deleteQuest(confirmDel);
       setConfirmDel(null);
       await load();
     }
   };
 
-  const sorted=useMemo(()=>[...drops].sort((a,b)=>{const da=parseDate(a.dropDate)||new Date(a.createdAt||0),db=parseDate(b.dropDate)||new Date(b.createdAt||0);return db-da;}),[drops]);
-  const filtered=useMemo(()=>sorted.filter(d=>{
-    if(fItem&&d.item!==fItem)return false;
-    if(fChar){const q=fChar.toLowerCase();if(!d.char.toLowerCase().includes(q)&&!(d.dropador||"").toLowerCase().includes(q))return false;}
-    if(fDate){const dt=parseDate(d.dropDate);if(dt){const iso=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;if(iso!==fDate)return false;}}
+  // ── Listas derivadas ─────────────────────────────────────────────
+  // sortedQuests: quests ordenadas por data desc (para o Histórico)
+  const sortedQuests = useMemo(() =>
+    [...quests].sort((a,b) => {
+      const da = parseDate(a.dropDate) || new Date(a.createdAt||0);
+      const db = parseDate(b.dropDate) || new Date(b.createdAt||0);
+      return db - da;
+    }), [quests]);
+
+  // flatRows: cada quest expandida em N linhas (1 por drop). Se a quest
+  // não tem drops, ainda gera 1 linha "vazia" para mostrar a quest.
+  // Cada linha carrega tanto os campos da quest quanto do drop.
+  const flatRows = useMemo(() => {
+    const rows = [];
+    for(const q of sortedQuests){
+      const ds = q.drops || [];
+      if(ds.length === 0){
+        rows.push({
+          questId: q.id, dropId: null,
+          questDate: q.dropDate, questTeam: q.team, questPagante: q.pagante,
+          questSuplentes: q.suplentes, questLoot: q.loot,
+          questServicePrice: q.servicePrice, questTempo: q.tempo,
+          item: "", boss: "", char: "", dropador: "",
+          soldPrice: "", soldDate: "",
+          // chaves usadas pelos componentes (compat)
+          dropDate: q.dropDate, team: q.team, pagante: q.pagante,
+          suplentes: q.suplentes, loot: q.loot, servicePrice: q.servicePrice, tempo: q.tempo
+        });
+      } else {
+        for(let i=0;i<ds.length;i++){
+          const d = ds[i];
+          const isFirst = i===0;
+          rows.push({
+            questId: q.id, dropId: d.id,
+            questDate: q.dropDate, questTeam: q.team, questPagante: q.pagante,
+            questSuplentes: q.suplentes, questLoot: q.loot,
+            questServicePrice: q.servicePrice, questTempo: q.tempo,
+            item: d.item, boss: d.boss, char: d.char, dropador: d.dropador,
+            soldPrice: d.soldPrice, soldDate: d.soldDate,
+            // Loot/Service/Tempo aparecem só na PRIMEIRA linha da quest pra
+            // manter o histórico legível (são quest-level, não per-drop).
+            dropDate: q.dropDate, team: q.team, pagante: q.pagante,
+            suplentes: q.suplentes,
+            loot: isFirst ? q.loot : "",
+            servicePrice: isFirst ? q.servicePrice : "",
+            tempo: isFirst ? q.tempo : ""
+          });
+        }
+      }
+    }
+    return rows;
+  }, [sortedQuests]);
+
+  const filtered = useMemo(() => flatRows.filter(d => {
+    if(fItem && d.item !== fItem) return false;
+    if(fChar){
+      const qq = fChar.toLowerCase();
+      if(!(d.char||"").toLowerCase().includes(qq) && !(d.dropador||"").toLowerCase().includes(qq)) return false;
+    }
+    if(fDate){
+      const dt = parseDate(d.dropDate);
+      if(dt){
+        const iso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+        if(iso !== fDate) return false;
+      }
+    }
     return true;
-  }),[sorted,fItem,fChar,fDate]);
-  const unsold=useMemo(()=>sorted.filter(d=>d.item&&!d.soldPrice),[sorted]);
-  const sold=useMemo(()=>sorted.filter(d=>d.item&&!!d.soldPrice),[sorted]);
+  }), [flatRows, fItem, fChar, fDate]);
+
+  // unsold/sold: per drop (item válido + presença/ausência de soldPrice)
+  const unsold = useMemo(() => flatRows.filter(d => d.item && !d.soldPrice), [flatRows]);
+  const sold = useMemo(() => flatRows.filter(d => d.item && !!d.soldPrice), [flatRows]);
 
   const getTeam=useCallback(cn=>{
     const c=(cn||"").toLowerCase();
@@ -315,25 +362,30 @@ export default function App(){
     const _kkToReal=kk=>{const tcFromKK=(kk*1000)/tcKK;return(tcFromKK/tcQty)*tcReal;};
     const _tcToReal=tc=>(tc/tcQty)*tcReal;
 
-    let data=sorted;
-    if(aMonth)data=data.filter(d=>{const dt=parseDate(d.dropDate);if(!dt)return false;return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`===aMonth;});
+    // Quest-level: filtra quests por mes selecionado
+    let questData=sortedQuests;
+    if(aMonth)questData=questData.filter(q=>{const dt=parseDate(q.dropDate);if(!dt)return false;return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`===aMonth;});
+
+    // Drop-level: todos os drops das quests filtradas
+    const allDrops=questData.flatMap(q=>(q.drops||[]).map(d=>({...d,questTeam:q.team,questDate:q.dropDate})));
 
     let totalLoot=0,totalSvcTC=0,soldKK=0,soldTC=0,totalTempo=0;
     let lootQuestA=0,lootQuestB=0,lootQuestC=0,svcQuestA=0,svcQuestB=0,svcQuestC=0;
-    data.forEach(d=>{
-      if(d.loot){const v=parseFloat(String(d.loot).replace(",","."));if(!isNaN(v)){totalLoot+=v;if(d.team==="A")lootQuestA+=v;else if(d.team==="B")lootQuestB+=v;else if(d.team==="C")lootQuestC+=v;}}
-      if(d.servicePrice){const v=parseFloat(String(d.servicePrice).replace(",","."));if(!isNaN(v)){totalSvcTC+=v;if(d.team==="A")svcQuestA+=v;else if(d.team==="B")svcQuestB+=v;else if(d.team==="C")svcQuestC+=v;}}
-      if(d.tempo){const v=parseInt(d.tempo);if(!isNaN(v))totalTempo+=v;}
+    // Soma loot/service/tempo NA QUEST (1 vez), nao por drop
+    questData.forEach(q=>{
+      if(q.loot){const v=parseFloat(String(q.loot).replace(",","."));if(!isNaN(v)){totalLoot+=v;if(q.team==="A")lootQuestA+=v;else if(q.team==="B")lootQuestB+=v;else if(q.team==="C")lootQuestC+=v;}}
+      if(q.servicePrice){const v=parseFloat(String(q.servicePrice).replace(",","."));if(!isNaN(v)){totalSvcTC+=v;if(q.team==="A")svcQuestA+=v;else if(q.team==="B")svcQuestB+=v;else if(q.team==="C")svcQuestC+=v;}}
+      if(q.tempo){const v=parseInt(q.tempo);if(!isNaN(v))totalTempo+=v;}
     });
 
-    const soldData=data.filter(d=>d.soldPrice);
+    const soldData=allDrops.filter(d=>d.soldPrice);
     soldData.forEach(d=>{const{kk,tc}=parseSold(d.soldPrice);soldKK+=kk;soldTC+=tc;});
 
-    const ic={};data.filter(d=>d.item).forEach(d=>{ic[d.item]=(ic[d.item]||0)+1;});
+    const ic={};allDrops.filter(d=>d.item).forEach(d=>{ic[d.item]=(ic[d.item]||0)+1;});
     const itemRank=Object.entries(ic).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
-    const cc={};data.forEach(d=>{if(d.char)cc[d.char]=(cc[d.char]||0)+1;});
+    const cc={};allDrops.forEach(d=>{if(d.char)cc[d.char]=(cc[d.char]||0)+1;});
     const charRank=Object.entries(cc).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
-    const dc={};data.forEach(d=>{if(d.dropador)dc[d.dropador]=(dc[d.dropador]||0)+1;});
+    const dc={};allDrops.forEach(d=>{if(d.dropador)dc[d.dropador]=(dc[d.dropador]||0)+1;});
     const dropadorRank=Object.entries(dc).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
 
     let tAkk=0,tAtc=0,tAn=0,uAkk=0,uAtc=0;
@@ -341,7 +393,7 @@ export default function App(){
     let tCkk=0,tCtc=0,tCn=0,uCkk=0,uCtc=0;
 
     soldData.forEach(d=>{
-      const team=d.team||getTeam(d.char);
+      const team=d.questTeam||getTeam(d.char);
       if(!team)return;
       const{kk,tc}=parseSold(d.soldPrice);
       const div=BASE_DIVISOR; // suplentes substituem fixos, divisor fixo
@@ -385,10 +437,9 @@ export default function App(){
       +lootQuestARealVal+lootQuestBRealVal+lootQuestCRealVal
       +svcQuestAShareReal+svcQuestBShareReal+svcQuestCShareReal;
 
-    const totalDropsItems=data.filter(d=>d.item).length;
-    const questIds=new Set();data.forEach(d=>questIds.add(d.questId||d.id));
+    const totalDropsItems=allDrops.filter(d=>d.item).length;
     return {totalLoot,totalSvcTC,soldKK,soldTC,itemRank,charRank,dropadorRank,
-      totalQuests:questIds.size,totalDrops:totalDropsItems,totalSold:soldData.length,totalTempo,
+      totalQuests:questData.length,totalDrops:totalDropsItems,totalSold:soldData.length,totalTempo,
       tAkk,tAtc,tAn,uAkk,uAtc,tBkk,tBtc,tBn,uBkk,uBtc,tCkk,tCtc,tCn,uCkk,uCtc,
       totalUnitKK,totalUnitTC,totalUnitReal,unitARealVal,unitBRealVal,unitCRealVal,
       lootQuestA,lootQuestB,lootQuestC,svcQuestA,svcQuestB,svcQuestC,
@@ -397,7 +448,7 @@ export default function App(){
       svcQuestAShareTC,svcQuestBShareTC,svcQuestCShareTC,
       svcQuestAShareReal,svcQuestBShareReal,svcQuestCShareReal,
       totalSvcAll,grandTotalReal};
-  },[sorted,aMonth,getTeam,tcKK,tcReal,tcQty]);
+  },[sortedQuests,aMonth,getTeam,tcKK,tcReal,tcQty]);
 
   const doLogin = async () => {
     const r = await api.login(passInput);
@@ -462,7 +513,7 @@ export default function App(){
       </div></div>}
 
       {showDropModal&&<div style={S.overlay}><div style={{...S.modal,maxWidth:480,width:"95%"}}>
-        <h3 style={{margin:"0 0 16px",color:"#e6edf3",fontSize:16}}>📦 {editDropIdx!==null?"Editar Drop":"Registrar Drop de Item"}</h3>
+        <h3 style={{margin:"0 0 16px",color:"#e6edf3",fontSize:16}}>📦 {editQuestIdx!==null?"Editar Drop":"Registrar Drop de Item"}</h3>
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <label style={S.lbl}>Item *
             <input list="dl-items-modal" value={dropBuf.item} onChange={e=>setDropBuf({...dropBuf,item:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
@@ -478,7 +529,7 @@ export default function App(){
             {allBonecos.length>0?<><select value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={S.sel}><option value="">Selecione...</option>{allBonecos.map(b=><option key={b} value={b}>{b}</option>)}</select><input value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={{...S.inp,marginTop:4}} placeholder="Ou digite..."/></>:<input value={dropBuf.char} onChange={e=>setDropBuf({...dropBuf,char:e.target.value})} style={S.inp} placeholder="Nome do boneco"/>}
           </label>
           <div style={{display:"flex",gap:8,marginTop:4}}>
-            <button onClick={saveDropModal} style={{...S.addBtn,flex:1}}>✅ {editDropIdx!==null?"Salvar Alteração":"Adicionar Drop"}</button>
+            <button onClick={saveDropModal} style={{...S.addBtn,flex:1}}>✅ {editQuestIdx!==null?"Salvar Alteração":"Adicionar Drop"}</button>
             <button onClick={cancelDropModal} style={{...S.addBtn,background:"#30363d",flex:1,marginTop:0}}>Cancelar</button>
           </div>
         </div>
@@ -520,8 +571,9 @@ export default function App(){
                   const sep=gi>0&&isFirst?{borderTop:"2px solid #58a6ff"}:{};
                   // Quests com 2+ drops ficam azuis sempre (mesmo vendidos)
                   const base=isMulti?{background:"rgba(31,111,235,.14)"}:(d.soldPrice?S.rS:!d.item?S.rNoDrop:S.rN);
+                  const rowKey=`${d.questId}-${d.dropId||'empty'}-${i}`;
                   rows.push(
-                    <tr key={d.id} style={{...base,...sep}}>
+                    <tr key={rowKey} style={{...base,...sep}}>
                       <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
                       <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":d.team==="C"?"#d29922":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
                       <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
@@ -542,29 +594,29 @@ export default function App(){
         {tab==="itens"&&<div>
           <h2 style={S.h2}>💎 Não Vendidos ({unsold.length})</h2>
           <div style={S.tw}><table style={S.tbl}><thead><tr><th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Data</th>{isAdmin&&<th style={S.th}>Ações</th>}</tr></thead><tbody>
-            {unsold.map(d=><tr key={d.id} style={S.rN}>
+            {unsold.map(d=><tr key={d.dropId} style={S.rN}>
               <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
               <td style={S.td}>{d.boss||"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.dropDate}</td>
-              {isAdmin&&<td style={S.td}>{editId===d.id?<div style={{display:"flex",gap:4,alignItems:"center"}}>
+              {isAdmin&&<td style={S.td}>{editId===d.dropId?<div style={{display:"flex",gap:4,alignItems:"center"}}>
                 <input placeholder="350kk / 250tc" value={salePrice} onChange={e=>setSalePrice(e.target.value)} style={S.sInp}/>
                 <input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)} style={S.sInp}/>
-                <button onClick={()=>saveSale(d.id)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button>
-              </div>:<button onClick={()=>{setEditId(d.id);setSalePrice("");setSaleDate("");}} style={S.sellBtn}>Vender</button>}</td>}
+                <button onClick={()=>saveSale(d.dropId)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button>
+              </div>:<button onClick={()=>{setEditId(d.dropId);setSalePrice("");setSaleDate("");}} style={S.sellBtn}>Vender</button>}</td>}
             </tr>)}
             {unsold.length===0&&<tr><td colSpan={isAdmin?6:5} style={S.empty}>Nenhum pendente</td></tr>}
           </tbody></table></div>
           <h2 style={{...S.h2,marginTop:32}}>✅ Vendidos ({sold.length})</h2>
           <div style={S.tw}><table style={S.tbl}><thead><tr><th style={S.th}>Item</th><th style={S.th}>Boneco</th><th style={S.th}>Data Drop</th><th style={S.th}>Preço</th><th style={S.th}>Data Venda</th>{isAdmin&&<th style={S.th}>Ações</th>}</tr></thead><tbody>
-            {sold.map(d=><tr key={d.id} style={S.rS}>
+            {sold.map(d=><tr key={d.dropId} style={S.rS}>
               <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
               <td style={S.td}>{d.char}</td><td style={S.td}>{d.dropDate}</td>
-              {editId===d.id&&isAdmin?<>
+              {editId===d.dropId&&isAdmin?<>
                 <td style={S.td}><input value={salePrice} onChange={e=>setSalePrice(e.target.value)} placeholder="Preço" style={S.sInp}/></td>
                 <td style={S.td}><input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)} style={S.sInp}/></td>
-                <td style={S.td}><button onClick={()=>saveSale(d.id)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button></td>
+                <td style={S.td}><button onClick={()=>saveSale(d.dropId)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button></td>
               </>:<>
                 <td style={{...S.td,fontWeight:700,color:"#2ecc40"}}>{d.soldPrice}</td><td style={S.td}>{d.soldDate}</td>
-                {isAdmin&&<td style={S.td}><button onClick={()=>{setEditId(d.id);setSalePrice(d.soldPrice||"");const dd=d.soldDate;if(dd){const[day,mon,yr]=dd.split("/");setSaleDate(`${yr}-${mon}-${day}`);}else setSaleDate("");}} style={S.editBtn} title="Editar venda">✏️</button></td>}
+                {isAdmin&&<td style={S.td}><button onClick={()=>{setEditId(d.dropId);setSalePrice(d.soldPrice||"");const dd=d.soldDate;if(dd){const[day,mon,yr]=dd.split("/");setSaleDate(`${yr}-${mon}-${day}`);}else setSaleDate("");}} style={S.editBtn} title="Editar venda">✏️</button></td>}
               </>}
             </tr>)}
             {sold.length===0&&<tr><td colSpan={isAdmin?6:5} style={S.empty}>Nenhuma venda</td></tr>}
@@ -579,7 +631,7 @@ export default function App(){
           </div>
 
           {adminSub==="registro"&&<div>
-            {editDropId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
+            {editQuestId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
             <div style={S.form}>
               <label style={S.lbl}>Pagante<input value={nf.pagante} onChange={e=>setNf({...nf,pagante:e.target.value})} style={S.inp}/></label>
               <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option>{teamC.length>0&&<option value="C">🅲 Time C — {teamC.join(", ")}</option>}</select></label>
@@ -601,7 +653,7 @@ export default function App(){
               <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>Drops de Item {nf.drops.length>0&&<span style={{color:"#2ecc40"}}>({nf.drops.length})</span>}</span>
-                  {!editDropId&&<button onClick={openDropModal} style={{...S.plusBtn,background:"#238636"}}>📦 + Adicionar Drop</button>}
+                  {!editQuestId&&<button onClick={openDropModal} style={{...S.plusBtn,background:"#238636"}}>📦 + Adicionar Drop</button>}
                 </div>
                 {nf.drops.length>0?(
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -623,23 +675,44 @@ export default function App(){
                   </div>
                 ):(
                   <div style={{background:"rgba(218,54,51,.08)",border:"1px dashed #484f58",borderRadius:8,padding:"12px 16px",textAlign:"center"}}>
-                    <span style={{fontSize:13,color:"#484f58"}}>Nenhum drop nesta quest{!editDropId&&" — clique em + Adicionar Drop para incluir um item"}</span>
+                    <span style={{fontSize:13,color:"#484f58"}}>Nenhum drop nesta quest{!editQuestId&&" — clique em + Adicionar Drop para incluir um item"}</span>
                   </div>
                 )}
               </div>
-              <button onClick={addDrop} style={{...S.addBtn,...(editDropId?{background:"linear-gradient(135deg,#1f6feb,#388bfd)"}:{})}}>{editDropId?"💾 Salvar Edição":"⚔️ Registrar Quest"}</button>
-              {editDropId&&<button onClick={cancelEdit} style={{...S.addBtn,background:"#30363d",marginTop:0}}>Cancelar Edição</button>}
+              <button onClick={saveQuest} style={{...S.addBtn,...(editQuestId?{background:"linear-gradient(135deg,#1f6feb,#388bfd)"}:{})}}>{editQuestId?"💾 Salvar Edição":"⚔️ Registrar Quest"}</button>
+              {editQuestId&&<button onClick={cancelEdit} style={{...S.addBtn,background:"#30363d",marginTop:0}}>Cancelar Edição</button>}
             </div>
-            <h2 style={{...S.h2,marginTop:40}}>📋 Registros ({drops.length})</h2>
+            <h2 style={{...S.h2,marginTop:40}}>📋 Quests ({sortedQuests.length})</h2>
             <div style={S.tw}><table style={S.tbl}><thead><tr>
-              <th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Time</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Pagante</th><th style={S.th}>Sup</th><th style={S.th}>Data</th><th style={S.th}>Loot</th><th style={S.th}>Svc</th><th style={S.th}>Tempo</th><th style={S.th}>Venda</th><th style={S.th}>Ações</th>
+              <th style={S.th}>Data</th><th style={S.th}>Time</th><th style={S.th}>Pagante</th><th style={S.th}>Sup</th><th style={S.th}>Loot</th><th style={S.th}>Svc</th><th style={S.th}>Tempo</th><th style={S.th}>Drops</th><th style={S.th}>Ações</th>
             </tr></thead><tbody>
-              {sorted.map(d=><tr key={d.id} style={{...(d.soldPrice?S.rS:S.rN),...(editDropId===d.id?{background:"rgba(31,111,235,.12)",outline:"1px solid #1f6feb"}:{})}}>
-                <td style={S.td}><Img name={d.item} items={allItems}/> {d.item}</td><td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
-                <td style={{...S.td,whiteSpace:"normal",maxWidth:150,fontSize:11}}>{supDisp(d.suplentes)}</td>
-                <td style={S.td}>{d.dropDate}</td><td style={S.td}>{d.loot?`${d.loot}kk`:"—"}</td><td style={S.td}>{d.servicePrice?`${d.servicePrice}tc`:"—"}</td><td style={S.td}>{fmtMin(d.tempo)}</td><td style={S.td}>{d.soldPrice||"—"}</td>
-                <td style={S.td}><button onClick={()=>startEditDrop(d.id)} style={S.editBtn} title="Editar">✏️</button><button onClick={()=>startDel(d.id)} style={S.delBtn} title="Remover">🗑️</button></td>
-              </tr>)}
+              {sortedQuests.map(q=>{
+                const ds = q.drops || [];
+                const isMulti = ds.length > 1;
+                const isEditing = editQuestId===q.id;
+                const baseRow = isMulti ? {background:"rgba(31,111,235,.14)"} : S.rN;
+                const editStyle = isEditing ? {background:"rgba(31,111,235,.20)",outline:"1px solid #1f6feb"} : {};
+                return <tr key={q.id} style={{...baseRow,...editStyle}}>
+                  <td style={S.td}>{q.dropDate||"—"}</td>
+                  <td style={{...S.td,fontWeight:600,color:q.team==="A"?"#58a6ff":q.team==="B"?"#da3633":q.team==="C"?"#d29922":"#8b949e"}}>{q.team?`Time ${q.team}`:"—"}</td>
+                  <td style={S.td}>{q.pagante||"—"}</td>
+                  <td style={{...S.td,whiteSpace:"normal",maxWidth:150,fontSize:11}}>{supDisp(q.suplentes)}</td>
+                  <td style={S.td}>{q.loot?`${q.loot}kk`:"—"}</td>
+                  <td style={S.td}>{q.servicePrice?`${q.servicePrice}tc`:"—"}</td>
+                  <td style={S.td}>{fmtMin(q.tempo)}</td>
+                  <td style={{...S.td,whiteSpace:"normal",maxWidth:280,fontSize:11}}>
+                    {ds.length===0?<span style={{color:"#484f58"}}>—</span>:
+                      <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                        {ds.map(d=><div key={d.id} style={{display:"flex",alignItems:"center",gap:4}}>
+                          <Img name={d.item} items={allItems}/>
+                          <span style={{fontSize:11}}>{d.item}{d.char?` · ${d.char}`:""}{d.soldPrice?` · ✅ ${d.soldPrice}`:""}</span>
+                        </div>)}
+                      </div>
+                    }
+                  </td>
+                  <td style={S.td}><button onClick={()=>startEditQuest(q.id)} style={S.editBtn} title="Editar">✏️</button><button onClick={()=>startDel(q.id)} style={S.delBtn} title="Remover quest inteira">🗑️</button></td>
+                </tr>;
+              })}
             </tbody></table></div>
           </div>}
 
