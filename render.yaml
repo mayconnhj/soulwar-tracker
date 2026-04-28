@@ -10,3 +10,7 @@ services:
         value: production
       - key: FRONTEND_URL
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
