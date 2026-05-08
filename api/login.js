@@ -1,5 +1,6 @@
 import { checkPassword } from '../lib/supabase.js';
 import { createToken } from '../lib/auth.js';
+import { sendApiError } from '../lib/validate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,14 +13,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const ok = await checkPassword(req.body.password);
-    if (ok) {
-      res.json({ ok: true, token: createToken() });
-    } else {
-      res.status(401).json({ error: 'Senha incorreta' });
-    }
+    const ok = await checkPassword(req.body && req.body.password);
+    if (ok) res.json({ ok: true, token: createToken() });
+    else res.status(401).json({ error: 'Senha incorreta' });
   } catch (err) {
-    console.error('API /login error:', err);
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err, 'API /login');
   }
 }

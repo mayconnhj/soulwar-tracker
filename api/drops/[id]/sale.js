@@ -1,5 +1,6 @@
 import { updateDropSale } from '../../../lib/supabase.js';
 import { requireAuth } from '../../../lib/auth.js';
+import { sendApiError } from '../../../lib/validate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,10 +17,8 @@ export default async function handler(req, res) {
   const { id } = req.query;
 
   try {
-    const drop = await updateDropSale(id, req.body);
-    return res.json(drop);
+    return res.json(await updateDropSale(id, req.body));
   } catch (err) {
-    console.error(`API /drops/${id}/sale error:`, err);
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err, `API /drops/${id}/sale`);
   }
 }

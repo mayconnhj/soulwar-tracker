@@ -1,5 +1,6 @@
 import { changePassword } from '../lib/supabase.js';
 import { requireAuth } from '../lib/auth.js';
+import { sendApiError } from '../lib/validate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -18,9 +19,6 @@ export default async function handler(req, res) {
     await changePassword(currentPassword, newPassword);
     res.json({ ok: true });
   } catch (err) {
-    if (err.code === 'BAD_CURRENT_PASSWORD') return res.status(401).json({ error: err.message });
-    if (err.code === 'WEAK_PASSWORD') return res.status(400).json({ error: err.message });
-    console.error('API /change-password error:', err);
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err, 'API /change-password');
   }
 }

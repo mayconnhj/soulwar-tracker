@@ -10,6 +10,7 @@ import {
   getConfig, saveConfig, checkPassword, changePassword
 } from './lib/supabase.js';
 import { createToken, requireAuth } from './lib/auth.js';
+import { sendApiError } from './lib/validate.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -21,7 +22,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '200kb' }));
 
 const distPath = join(__dirname, 'dist');
 if (existsSync(distPath)) {
@@ -31,97 +32,48 @@ if (existsSync(distPath)) {
 // ── Quests CRUD ─────────────────────────────────────────────────────
 
 app.get('/api/quests', async (req, res) => {
-  try {
-    const data = await getQuests();
-    res.json(data);
-  } catch (err) {
-    console.error('GET /api/quests error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await getQuests()); } catch (err) { sendApiError(res, err, 'GET /api/quests'); }
 });
 
 app.post('/api/quests', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  try {
-    const quest = await addQuest(req.body);
-    res.json(quest);
-  } catch (err) {
-    console.error('POST /api/quests error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await addQuest(req.body)); } catch (err) { sendApiError(res, err, 'POST /api/quests'); }
 });
 
 app.put('/api/quests/:id', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  try {
-    const quest = await updateQuest(req.params.id, req.body);
-    res.json(quest);
-  } catch (err) {
-    console.error('PUT /api/quests/:id error:', err);
-    if (err.code === 'PGRST116') return res.status(404).json({ error: 'Quest not found' });
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await updateQuest(req.params.id, req.body)); } catch (err) { sendApiError(res, err, 'PUT /api/quests/:id'); }
 });
 
 app.delete('/api/quests/:id', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  try {
-    const result = await deleteQuest(req.params.id);
-    res.json(result);
-  } catch (err) {
-    console.error('DELETE /api/quests/:id error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await deleteQuest(req.params.id)); } catch (err) { sendApiError(res, err, 'DELETE /api/quests/:id'); }
 });
 
 // ── Drops: venda individual ─────────────────────────────────────────
 
 app.put('/api/drops/:id/sale', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  try {
-    const drop = await updateDropSale(req.params.id, req.body);
-    res.json(drop);
-  } catch (err) {
-    console.error('PUT /api/drops/:id/sale error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await updateDropSale(req.params.id, req.body)); } catch (err) { sendApiError(res, err, 'PUT /api/drops/:id/sale'); }
 });
 
 // ── Config ──────────────────────────────────────────────────────────
 
 app.get('/api/config', async (req, res) => {
-  try {
-    const config = await getConfig();
-    res.json(config);
-  } catch (err) {
-    console.error('GET /api/config error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await getConfig()); } catch (err) { sendApiError(res, err, 'GET /api/config'); }
 });
 
 app.put('/api/config', async (req, res) => {
   if (!requireAuth(req, res)) return;
-  try {
-    const config = await saveConfig(req.body);
-    res.json(config);
-  } catch (err) {
-    console.error('PUT /api/config error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  try { res.json(await saveConfig(req.body)); } catch (err) { sendApiError(res, err, 'PUT /api/config'); }
 });
 
 app.post('/api/login', async (req, res) => {
   try {
-    const ok = await checkPassword(req.body.password);
-    if (ok) {
-      res.json({ ok: true, token: createToken() });
-    } else {
-      res.status(401).json({ error: 'Senha incorreta' });
-    }
-  } catch (err) {
-    console.error('POST /api/login error:', err);
-    res.status(500).json({ error: err.message });
-  }
+    const ok = await checkPassword(req.body && req.body.password);
+    if (ok) res.json({ ok: true, token: createToken() });
+    else res.status(401).json({ error: 'Senha incorreta' });
+  } catch (err) { sendApiError(res, err, 'POST /api/login'); }
 });
 
 app.post('/api/change-password', async (req, res) => {
@@ -130,12 +82,7 @@ app.post('/api/change-password', async (req, res) => {
     const { currentPassword, newPassword } = req.body || {};
     await changePassword(currentPassword, newPassword);
     res.json({ ok: true });
-  } catch (err) {
-    if (err.code === 'BAD_CURRENT_PASSWORD') return res.status(401).json({ error: err.message });
-    if (err.code === 'WEAK_PASSWORD') return res.status(400).json({ error: err.message });
-    console.error('POST /api/change-password error:', err);
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { sendApiError(res, err, 'POST /api/change-password'); }
 });
 
 // ── SPA fallback ────────────────────────────────────────────────────

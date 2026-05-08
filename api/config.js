@@ -1,5 +1,6 @@
 import { getConfig, saveConfig } from '../lib/supabase.js';
 import { requireAuth } from '../lib/auth.js';
+import { sendApiError } from '../lib/validate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -8,20 +9,15 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    if (req.method === 'GET') {
-      const config = await getConfig();
-      return res.json(config);
-    }
+    if (req.method === 'GET') return res.json(await getConfig());
 
     if (req.method === 'PUT') {
       if (!requireAuth(req, res)) return;
-      const config = await saveConfig(req.body);
-      return res.json(config);
+      return res.json(await saveConfig(req.body));
     }
 
     res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
-    console.error('API /config error:', err);
-    res.status(500).json({ error: err.message });
+    sendApiError(res, err, 'API /config');
   }
 }
