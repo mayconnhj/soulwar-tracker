@@ -21,6 +21,7 @@ const api = {
   async getConfig() { const r = await fetch(`${API}/config`); return r.json(); },
   async saveConfig(data) { const r = await fetch(`${API}/config`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
   async login(password) { const r = await fetch(`${API}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); return r; },
+  async changePassword(currentPassword, newPassword) { const r = await fetch(`${API}/change-password`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ currentPassword, newPassword }) }); return r; },
 };
 
 // All items that can come from Bag You Desire + Sanguine Set + Promotion Scroll
@@ -94,7 +95,7 @@ export default function App(){
   // quests é a fonte de verdade; cada quest tem .drops (array)
   const [quests,setQuests]=useState([]);
   const [cfg,setCfg]=useState({
-    password:"soulwar2026",bosses:[...DEFAULT_BOSSES],fixos:[...DEFAULT_FIXOS],bonecos:[],
+    bosses:[...DEFAULT_BOSSES],fixos:[...DEFAULT_FIXOS],bonecos:[],
     items:{},teamA:[...DEFAULT_TEAM_A],teamB:[...DEFAULT_TEAM_B],teamC:[...DEFAULT_TEAM_C],
     tcPriceReal:"53",tcPriceKK:"39",tcQty:"250",
     removedBosses:[],removedFixos:[],removedItems:[]
@@ -122,6 +123,7 @@ export default function App(){
   const [newBoneco,setNewBoneco]=useState("");
   const [newItemName,setNewItemName]=useState("");
   const [newItemUrl,setNewItemUrl]=useState("");
+  const [currentPass,setCurrentPass]=useState("");
   const [newPass,setNewPass]=useState("");
   const [newPassC,setNewPassC]=useState("");
   const [confirmDel,setConfirmDel]=useState(null);
@@ -147,7 +149,9 @@ export default function App(){
   // ── Save helpers (API calls) ────────────────────────────────────
   const saveC = async (c) => {
     setCfg(c);
-    try { await api.saveConfig(c); } catch (e) { console.error(e); }
+    // 'password' nunca trafega por aqui — use api.changePassword().
+    const { password, ...payload } = c;
+    try { await api.saveConfig(payload); } catch (e) { console.error(e); }
   };
 
   const allItems=useMemo(()=>{
@@ -461,11 +465,21 @@ export default function App(){
   };
 
   const changePw = async () => {
-    if(!newPass||newPass.length<4) return alert("Mín 4 caracteres");
+    if(!currentPass) return alert("Informe a senha atual");
+    if(!newPass||newPass.length<4) return alert("Nova senha precisa ter no mínimo 4 caracteres");
     if(newPass!==newPassC) return alert("Senhas não conferem");
-    await saveC({...cfg, password: newPass});
-    setNewPass(""); setNewPassC("");
-    alert("Senha alterada!");
+    try {
+      const r = await api.changePassword(currentPass, newPass);
+      if(r.ok){
+        setCurrentPass(""); setNewPass(""); setNewPassC("");
+        alert("Senha alterada com sucesso!");
+      } else {
+        const data = await r.json().catch(()=>({}));
+        alert(data.error || "Erro ao trocar senha");
+      }
+    } catch(e) {
+      alert("Erro de rede ao trocar senha");
+    }
   };
 
   const addBossF=()=>{if(newBoss.trim()){saveC({...cfg,bosses:[...new Set([...(cfg.bosses||[]),newBoss.trim()])],removedBosses:(cfg.removedBosses||[]).filter(x=>x!==newBoss.trim())});setNewBoss("");}};
@@ -737,8 +751,9 @@ export default function App(){
 
           {adminSub==="senha"&&<div style={{...S.form,maxWidth:360}}>
             <h3 style={{margin:"0 0 8px",color:"#e6edf3"}}>🔑 Trocar Senha</h3>
-            <label style={S.lbl}>Nova senha<input type="password" value={newPass} onChange={e=>setNewPass(e.target.value)} style={S.inp}/></label>
-            <label style={S.lbl}>Confirmar<input type="password" value={newPassC} onChange={e=>setNewPassC(e.target.value)} style={S.inp}/></label>
+            <label style={S.lbl}>Senha atual<input type="password" value={currentPass} onChange={e=>setCurrentPass(e.target.value)} style={S.inp} autoComplete="current-password"/></label>
+            <label style={S.lbl}>Nova senha<input type="password" value={newPass} onChange={e=>setNewPass(e.target.value)} style={S.inp} autoComplete="new-password"/></label>
+            <label style={S.lbl}>Confirmar nova senha<input type="password" value={newPassC} onChange={e=>setNewPassC(e.target.value)} style={S.inp} autoComplete="new-password"/></label>
             <button onClick={changePw} style={S.addBtn}>Alterar Senha</button>
           </div>}
         </div>}

@@ -7,7 +7,7 @@ import { existsSync } from 'fs';
 import {
   getQuests, addQuest, updateQuest, deleteQuest,
   updateDropSale,
-  getConfig, saveConfig, checkPassword
+  getConfig, saveConfig, checkPassword, changePassword
 } from './lib/supabase.js';
 import { createToken, requireAuth } from './lib/auth.js';
 
@@ -120,6 +120,20 @@ app.post('/api/login', async (req, res) => {
     }
   } catch (err) {
     console.error('POST /api/login error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/change-password', async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    await changePassword(currentPassword, newPassword);
+    res.json({ ok: true });
+  } catch (err) {
+    if (err.code === 'BAD_CURRENT_PASSWORD') return res.status(401).json({ error: err.message });
+    if (err.code === 'WEAK_PASSWORD') return res.status(400).json({ error: err.message });
+    console.error('POST /api/change-password error:', err);
     res.status(500).json({ error: err.message });
   }
 });
