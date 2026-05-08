@@ -61,9 +61,11 @@ const DEFAULT_TEAM_B = ["Lark Zepin","Abel Shaene","Brabubagore","Sokon Eltanke"
 const DEFAULT_TEAM_C = [];
 const BASE_DIVISOR = 7;
 
-function Img({name,items}){
+function Img({name,items,removedItems}){
   const [err,setErr]=useState(false);
-  const url=(items||{})[name]||DEFAULT_ITEMS[name];
+  // Item removido nunca mostra imagem — nem via items custom nem via DEFAULT_ITEMS.
+  const isRemoved=Array.isArray(removedItems)&&removedItems.includes(name);
+  const url=isRemoved?null:((items||{})[name]||DEFAULT_ITEMS[name]);
   if(!url||err) return <span style={{display:"inline-block",width:28,height:28,lineHeight:"28px",textAlign:"center",background:"#21262d",borderRadius:4,fontSize:10,color:"#8b949e",verticalAlign:"middle"}}>🗡️</span>;
   return <img src={url} alt={name} style={{width:32,height:32,imageRendering:"pixelated",verticalAlign:"middle"}} onError={()=>setErr(true)}/>;
 }
@@ -72,6 +74,17 @@ function parseDate(d){if(!d)return null;const[dd,mm,yy]=d.split("/");return new 
 function fromIso(iso){if(!iso)return "";const[yy,mm,dd]=iso.split("-");return `${dd}/${mm}/${yy}`;}
 function fmtMin(m){if(!m&&m!==0)return "—";const v=parseInt(m);if(isNaN(v))return String(m);const h=Math.floor(v/60),r=v%60;if(h===0)return `${r}m`;if(r===0)return `${h}h`;return `${h}h${r}m`;}
 function parseSold(p){if(!p)return{kk:0,tc:0};const s=String(p).toLowerCase().trim();if(s.includes("tc")){const n=parseFloat(s.replace(/[^0-9.,]/g,"").replace(",","."));return{kk:0,tc:isNaN(n)?0:n};}const n=parseFloat(s.replace(/[^0-9.,]/g,"").replace(",","."));return{kk:isNaN(n)?0:n,tc:0};}
+// Hint visual no input de venda: mostra como o valor vai ser interpretado.
+// Se sem unidade, avisa que assume KK (evita confusao com TC).
+function saleHint(s){
+  if(!s||!String(s).trim())return null;
+  const t=String(s).toLowerCase();
+  const hasUnit=t.includes("kk")||t.includes("tc");
+  const{kk,tc}=parseSold(s);
+  if(kk===0&&tc===0)return{text:"valor não reconhecido",warn:true};
+  if(!hasUnit)return{text:`→ ${kk}kk (sem unidade — adicione "tc" se for em TC)`,warn:true};
+  return{text:kk?`→ ${kk}kk`:`→ ${tc}tc`,warn:false};
+}
 
 function StatCard({label,value,sub,color}){
   return <div style={{background:"#161b22",border:"1px solid #30363d",borderRadius:10,padding:"14px 18px",minWidth:130,flex:"1 1 140px"}}>
@@ -421,12 +434,25 @@ export default function App(){
     const soldData=allDrops.filter(d=>d.soldPrice);
     soldData.forEach(d=>{const{kk,tc}=parseSold(d.soldPrice);soldKK+=kk;soldTC+=tc;});
 
-    const ic={};allDrops.filter(d=>d.item).forEach(d=>{ic[d.item]=(ic[d.item]||0)+1;});
-    const itemRank=Object.entries(ic).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
-    const cc={};allDrops.forEach(d=>{if(d.char)cc[d.char]=(cc[d.char]||0)+1;});
-    const charRank=Object.entries(cc).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
-    const dc={};allDrops.forEach(d=>{if(d.dropador)dc[d.dropador]=(dc[d.dropador]||0)+1;});
-    const dropadorRank=Object.entries(dc).map(([k,v])=>({name:k,count:v})).sort((a,b)=>b.count-a.count);
+    // Agrupa case-insensitive (Maycon e maycon viram a mesma entrada)
+    // mas exibe o label do registro mais frequente.
+    const aggregateCi=(rows,getKey)=>{
+      const buckets={};
+      rows.forEach(d=>{
+        const raw=getKey(d);if(!raw)return;
+        const k=String(raw).toLowerCase();
+        if(!buckets[k])buckets[k]={count:0,labels:{}};
+        buckets[k].count++;
+        buckets[k].labels[raw]=(buckets[k].labels[raw]||0)+1;
+      });
+      return Object.values(buckets).map(b=>({
+        name:Object.entries(b.labels).sort((a,b)=>b[1]-a[1])[0][0],
+        count:b.count,
+      })).sort((a,b)=>b.count-a.count);
+    };
+    const itemRank=aggregateCi(allDrops.filter(d=>d.item),d=>d.item);
+    const charRank=aggregateCi(allDrops,d=>d.char);
+    const dropadorRank=aggregateCi(allDrops,d=>d.dropador);
 
     let tAkk=0,tAtc=0,tAn=0,uAkk=0,uAtc=0;
     let tBkk=0,tBtc=0,tBn=0,uBkk=0,uBtc=0;
@@ -570,7 +596,7 @@ export default function App(){
             <input list="dl-items-modal" value={dropBuf.item} onChange={e=>setDropBuf({...dropBuf,item:e.target.value})} style={S.inp} placeholder="Digite para buscar..."/>
             <datalist id="dl-items-modal">{itemNames.map(i=><option key={i} value={i}/>)}</datalist>
           </label>
-          {dropBuf.item&&allItems[dropBuf.item]&&<div style={S.prev}><Img name={dropBuf.item} items={allItems}/> {dropBuf.item}</div>}
+          {dropBuf.item&&allItems[dropBuf.item]&&<div style={S.prev}><Img name={dropBuf.item} items={allItems} removedItems={cfg.removedItems}/> {dropBuf.item}</div>}
           <label style={S.lbl}>Boss
             <input list="dl-boss-modal" value={dropBuf.boss} onChange={e=>setDropBuf({...dropBuf,boss:e.target.value})} style={S.inp} placeholder="Boss que dropou"/>
             <datalist id="dl-boss-modal">{allBosses.map(b=><option key={b} value={b}/>)}</datalist>
@@ -625,7 +651,7 @@ export default function App(){
                   const rowKey=`${d.questId}-${d.dropId||'empty'}-${i}`;
                   rows.push(
                     <tr key={rowKey} style={{...base,...sep}}>
-                      <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
+                      <td style={S.td}><Img name={d.item} items={allItems} removedItems={cfg.removedItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
                       <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":d.team==="C"?"#d29922":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
                       <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
                       <td style={S.td}>{d.dropDate}</td>
@@ -646,12 +672,15 @@ export default function App(){
           <h2 style={S.h2}>💎 Não Vendidos ({unsold.length})</h2>
           <div style={S.tw}><table style={S.tbl}><thead><tr><th style={S.th}>Item</th><th style={S.th}>Boss</th><th style={S.th}>Boneco</th><th style={S.th}>Dropador</th><th style={S.th}>Data</th>{isAdmin&&<th style={S.th}>Ações</th>}</tr></thead><tbody>
             {unsold.map(d=><tr key={d.dropId} style={S.rN}>
-              <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
+              <td style={S.td}><Img name={d.item} items={allItems} removedItems={cfg.removedItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
               <td style={S.td}>{d.boss||"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.dropDate}</td>
-              {isAdmin&&<td style={S.td}>{editId===d.dropId?<div style={{display:"flex",gap:4,alignItems:"center"}}>
-                <input placeholder="350kk / 250tc" value={salePrice} onChange={e=>setSalePrice(e.target.value)} style={S.sInp}/>
-                <input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)} style={S.sInp}/>
-                <button onClick={()=>saveSale(d.dropId)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button>
+              {isAdmin&&<td style={S.td}>{editId===d.dropId?<div style={{display:"flex",flexDirection:"column",gap:4}}>
+                <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                  <input placeholder="350kk / 250tc" value={salePrice} onChange={e=>setSalePrice(e.target.value)} style={S.sInp}/>
+                  <input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)} style={S.sInp}/>
+                  <button onClick={()=>saveSale(d.dropId)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button>
+                </div>
+                {(()=>{const h=saleHint(salePrice);return h?<div style={{fontSize:10,color:h.warn?"#feca57":"#58a6ff"}}>{h.text}</div>:null;})()}
               </div>:<button onClick={()=>{setEditId(d.dropId);setSalePrice("");setSaleDate("");}} style={S.sellBtn}>Vender</button>}</td>}
             </tr>)}
             {unsold.length===0&&<tr><td colSpan={isAdmin?6:5} style={S.empty}>Nenhum pendente</td></tr>}
@@ -659,10 +688,10 @@ export default function App(){
           <h2 style={{...S.h2,marginTop:32}}>✅ Vendidos ({sold.length})</h2>
           <div style={S.tw}><table style={S.tbl}><thead><tr><th style={S.th}>Item</th><th style={S.th}>Boneco</th><th style={S.th}>Data Drop</th><th style={S.th}>Preço</th><th style={S.th}>Data Venda</th>{isAdmin&&<th style={S.th}>Ações</th>}</tr></thead><tbody>
             {sold.map(d=><tr key={d.dropId} style={S.rS}>
-              <td style={S.td}><Img name={d.item} items={allItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
+              <td style={S.td}><Img name={d.item} items={allItems} removedItems={cfg.removedItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
               <td style={S.td}>{d.char}</td><td style={S.td}>{d.dropDate}</td>
               {editId===d.dropId&&isAdmin?<>
-                <td style={S.td}><input value={salePrice} onChange={e=>setSalePrice(e.target.value)} placeholder="Preço" style={S.sInp}/></td>
+                <td style={S.td}><input value={salePrice} onChange={e=>setSalePrice(e.target.value)} placeholder="Preço" style={S.sInp}/>{(()=>{const h=saleHint(salePrice);return h?<div style={{fontSize:10,color:h.warn?"#feca57":"#58a6ff",marginTop:2}}>{h.text}</div>:null;})()}</td>
                 <td style={S.td}><input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)} style={S.sInp}/></td>
                 <td style={S.td}><button onClick={()=>saveSale(d.dropId)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button></td>
               </>:<>
@@ -711,7 +740,7 @@ export default function App(){
                     {nf.drops.map((d,idx)=>(
                       <div key={idx} style={{background:"rgba(35,134,54,.15)",border:"1px solid #2ea043",borderRadius:8,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          <Img name={d.item} items={allItems}/>
+                          <Img name={d.item} items={allItems} removedItems={cfg.removedItems}/>
                           <div>
                             <div style={{fontSize:13,fontWeight:600,color:"#2ecc40"}}>{d.item}</div>
                             <div style={{fontSize:11,color:"#8b949e"}}>{[d.boss,d.char,d.dropador&&`👤 ${d.dropador}`].filter(Boolean).join(" · ")||"—"}</div>
@@ -755,7 +784,7 @@ export default function App(){
                     {ds.length===0?<span style={{color:"#484f58"}}>—</span>:
                       <div style={{display:"flex",flexDirection:"column",gap:2}}>
                         {ds.map(d=><div key={d.id} style={{display:"flex",alignItems:"center",gap:4}}>
-                          <Img name={d.item} items={allItems}/>
+                          <Img name={d.item} items={allItems} removedItems={cfg.removedItems}/>
                           <span style={{fontSize:11}}>{d.item}{d.char?` · ${d.char}`:""}{d.soldPrice?` · ✅ ${d.soldPrice}`:""}</span>
                         </div>)}
                       </div>
@@ -778,7 +807,7 @@ export default function App(){
             </div>)}
             <div style={S.dbCard}><h3 style={S.dbT}>🗡️ Itens ({itemNames.length})</h3>
               <div style={S.dbA}><input value={newItemName} onChange={e=>setNewItemName(e.target.value)} placeholder="Nome" style={{...S.inp,flex:1}}/><input value={newItemUrl} onChange={e=>setNewItemUrl(e.target.value)} placeholder="URL img (opt)" style={{...S.inp,flex:1}}/><button onClick={addItemF} style={S.plusBtn}>+</button></div>
-              <div style={S.dbL}>{itemNames.map(i=><div key={i} style={S.dbI}><div style={{display:"flex",alignItems:"center",gap:4}}><Img name={i} items={allItems}/><span style={{marginLeft:4,fontSize:12}}>{i}</span></div><button onClick={()=>rmItemF(i)} style={S.dbD}>✕</button></div>)}</div>
+              <div style={S.dbL}>{itemNames.map(i=><div key={i} style={S.dbI}><div style={{display:"flex",alignItems:"center",gap:4}}><Img name={i} items={allItems} removedItems={cfg.removedItems}/><span style={{marginLeft:4,fontSize:12}}>{i}</span></div><button onClick={()=>rmItemF(i)} style={S.dbD}>✕</button></div>)}</div>
             </div>
             {[{title:"🅰️ Time A",list:teamA,key:"teamA"},{title:"🅱️ Time B",list:teamB,key:"teamB"},{title:"🅲 Time C",list:teamC,key:"teamC"}].map(({title,list,key})=><div key={key} style={S.dbCard}><h3 style={S.dbT}>{title} ({list.length})</h3>
               <div style={S.dbA}><input placeholder="Add boneco..." id={`_${key}`} style={{...S.inp,flex:1}} onKeyDown={e=>{if(e.key==="Enter"&&e.target.value.trim()){saveC({...cfg,[key]:[...list,e.target.value.trim()]});e.target.value="";}}} /><button onClick={()=>{const el=document.getElementById(`_${key}`);if(el?.value.trim()){saveC({...cfg,[key]:[...list,el.value.trim()]});el.value="";}}} style={S.plusBtn}>+</button></div>
@@ -814,7 +843,7 @@ export default function App(){
           </div>
 
           <h2 style={{...S.h2,marginTop:8}}>💰 Valor Unitário por Fixo</h2>
-          <div style={{fontSize:11,color:"#484f58",marginBottom:12}}>Base ÷{BASE_DIVISOR} + suplentes. Cotação: 1tc = {cfg.tcPriceKK}k | R${cfg.tcPriceReal}/{cfg.tcQty}tc</div>
+          <div style={{fontSize:11,color:"#484f58",marginBottom:12}}>Base ÷{BASE_DIVISOR} (suplentes substituem fixos, divisor fixo). Cotação: 1tc = {cfg.tcPriceKK}k | R${cfg.tcPriceReal}/{cfg.tcQty}tc</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:24}}>
             <div style={{background:"#161b22",border:"1px solid #1f6feb",borderRadius:10,padding:16,flex:"1 1 300px"}}>
               <div style={{fontSize:13,fontWeight:600,color:"#58a6ff",marginBottom:10}}>🅰️ Time A — {analytics.tAn} venda(s)</div>
