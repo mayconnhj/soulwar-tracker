@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 
 // ── API helpers ─────────────────────────────────────────────────────
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -129,6 +129,15 @@ export default function App(){
   const [confirmDel,setConfirmDel]=useState(null);
   const [editQuestId,setEditQuestId]=useState(null);
   const [showDropModal,setShowDropModal]=useState(false);
+  const [toast,setToast]=useState(null);
+  const toastTimerRef=useRef(null);
+  const debounceRef=useRef(null);
+
+  const showToast=useCallback((msg,type='error')=>{
+    if(toastTimerRef.current)clearTimeout(toastTimerRef.current);
+    setToast({msg,type});
+    toastTimerRef.current=setTimeout(()=>setToast(null),4000);
+  },[]);
 
   // ── Load data from API ──────────────────────────────────────────
   const load = useCallback(async () => {
@@ -140,19 +149,46 @@ export default function App(){
       }
     } catch (e) {
       console.error('Error loading data:', e);
+      showToast('Falha ao carregar dados. Verifique sua conexão.','error');
     }
     setLoading(false);
-  }, []);
+  }, [showToast]);
 
   useEffect(() => { load(); }, [load]);
 
   // ── Save helpers (API calls) ────────────────────────────────────
-  const saveC = async (c) => {
-    setCfg(c);
-    // 'password' nunca trafega por aqui — use api.changePassword().
-    const { password, ...payload } = c;
-    try { await api.saveConfig(payload); } catch (e) { console.error(e); }
+  // saveC(next): aplica imediato (UI responsiva), tenta gravar e
+  // rollbacka pro estado anterior se falhar.
+  const saveC = async (next) => {
+    let prev;
+    setCfg(curr => { prev = curr; return next; });
+    const { password, ...payload } = next;
+    try {
+      await api.saveConfig(payload);
+    } catch (e) {
+      console.error('saveConfig falhou:', e);
+      if (prev) setCfg(prev); // rollback
+      showToast(`Falha ao salvar: ${e.message || 'erro de rede'}`,'error');
+    }
   };
+
+  // Auto-save com debounce: dispara SO quando o usuario digita em uma
+  // cotacao (chama via onChangeCotacao). Nao dispara no load inicial ou
+  // HMR. Lê o cfg via setCfg callback pra pegar valor atualizado.
+  const onChangeCotacao = useCallback((key, val) => {
+    setCfg(p => ({...p, [key]: val}));
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setCfg(curr => {
+        const { password, ...payload } = curr;
+        api.saveConfig(payload).catch(e => {
+          console.error('debounce saveConfig falhou:', e);
+          showToast('Falha ao salvar cotação','error');
+        });
+        return curr;
+      });
+    }, 500);
+  }, [showToast]);
 
   const allItems=useMemo(()=>{
     const merged={...DEFAULT_ITEMS,...(cfg.items||{})};
@@ -482,13 +518,13 @@ export default function App(){
     }
   };
 
-  const addBossF=()=>{if(newBoss.trim()){saveC({...cfg,bosses:[...new Set([...(cfg.bosses||[]),newBoss.trim()])],removedBosses:(cfg.removedBosses||[]).filter(x=>x!==newBoss.trim())});setNewBoss("");}};
+  const addBossF=async()=>{const v=newBoss.trim();if(!v)return;setNewBoss("");await saveC({...cfg,bosses:[...new Set([...(cfg.bosses||[]),v])],removedBosses:(cfg.removedBosses||[]).filter(x=>x!==v)});};
   const rmBossF=b=>saveC({...cfg,removedBosses:[...new Set([...(cfg.removedBosses||[]),b])]});
-  const addFixoF=()=>{if(newFixo.trim()){saveC({...cfg,fixos:[...new Set([...(cfg.fixos||[]),newFixo.trim()])],removedFixos:(cfg.removedFixos||[]).filter(x=>x!==newFixo.trim())});setNewFixo("");}};
+  const addFixoF=async()=>{const v=newFixo.trim();if(!v)return;setNewFixo("");await saveC({...cfg,fixos:[...new Set([...(cfg.fixos||[]),v])],removedFixos:(cfg.removedFixos||[]).filter(x=>x!==v)});};
   const rmFixoF=f=>saveC({...cfg,removedFixos:[...new Set([...(cfg.removedFixos||[]),f])]});
-  const addBonecoF=()=>{if(newBoneco.trim()){saveC({...cfg,bonecos:[...new Set([...(cfg.bonecos||[]),newBoneco.trim()])]});setNewBoneco("");}};
+  const addBonecoF=async()=>{const v=newBoneco.trim();if(!v)return;setNewBoneco("");await saveC({...cfg,bonecos:[...new Set([...(cfg.bonecos||[]),v])]});};
   const rmBonecoF=b=>saveC({...cfg,bonecos:(cfg.bonecos||[]).filter(x=>x!==b)});
-  const addItemF=()=>{if(newItemName.trim()){saveC({...cfg,items:{...(cfg.items||{}),[newItemName.trim()]:newItemUrl.trim()||""},removedItems:(cfg.removedItems||[]).filter(x=>x!==newItemName.trim())});setNewItemName("");setNewItemUrl("");}};
+  const addItemF=async()=>{const v=newItemName.trim();if(!v)return;const url=newItemUrl.trim()||"";setNewItemName("");setNewItemUrl("");await saveC({...cfg,items:{...(cfg.items||{}),[v]:url},removedItems:(cfg.removedItems||[]).filter(x=>x!==v)});};
   const rmItemF=name=>saveC({...cfg,removedItems:[...new Set([...(cfg.removedItems||[]),name])]});
 
   const supDisp=sups=>{if(!sups?.length)return "—";return sups.map(s=>`${s.nome}${s.lugarDe?` (→${s.lugarDe})`:""}`).join(", ");};
@@ -499,16 +535,17 @@ export default function App(){
 
   return (
     <div style={S.root}>
+      {toast&&<div style={{...S.toastBase,...(toast.type==='error'?S.toastError:S.toastInfo)}}>{toast.msg}</div>}
       <header style={S.header}>
         <div style={S.hi}>
           <h1 style={S.logo}>⚔️ Soulwar Tracker</h1>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             <div style={S.tcBox}><span style={S.tcLb}>R$</span>
-              {isAdmin?<input value={cfg.tcPriceReal||""} onChange={e=>saveC({...cfg,tcPriceReal:e.target.value})} style={S.tcInp}/>:<span style={S.tcV}>{cfg.tcPriceReal||"—"}</span>}
+              {isAdmin?<input value={cfg.tcPriceReal||""} onChange={e=>onChangeCotacao('tcPriceReal',e.target.value)} style={S.tcInp}/>:<span style={S.tcV}>{cfg.tcPriceReal||"—"}</span>}
               <span style={S.tcS}>/{cfg.tcQty||250}tc</span>
             </div>
             <div style={S.tcBox}><span style={S.tcLb}>TC</span>
-              {isAdmin?<input value={cfg.tcPriceKK||""} onChange={e=>saveC({...cfg,tcPriceKK:e.target.value})} style={S.tcInp}/>:<span style={S.tcV}>{cfg.tcPriceKK||"—"}k</span>}
+              {isAdmin?<input value={cfg.tcPriceKK||""} onChange={e=>onChangeCotacao('tcPriceKK',e.target.value)} style={S.tcInp}/>:<span style={S.tcV}>{cfg.tcPriceKK||"—"}k</span>}
               <span style={S.tcS}>/1tc</span>
             </div>
             {isAdmin?<button onClick={()=>{sessionStorage.removeItem('admin_token');setIsAdmin(false);setTab("historico");}} style={S.logoutBtn}>Sair</button>:<button onClick={()=>setShowLogin(!showLogin)} style={S.adminBtn}>🔒 Admin</button>}
@@ -926,4 +963,7 @@ const S={
   miniLbl:{fontSize:11,color:"#8b949e"},
   miniVal:{fontSize:16,fontWeight:700,color:"#feca57"},
   footer:{padding:16,textAlign:"center",color:"#484f58",fontSize:12,borderTop:"1px solid #21262d"},
+  toastBase:{position:"fixed",bottom:20,right:20,padding:"12px 18px",borderRadius:8,fontSize:13,fontWeight:600,zIndex:1000,boxShadow:"0 4px 14px rgba(0,0,0,.4)",maxWidth:360},
+  toastError:{background:"#da3633",color:"#fff",border:"1px solid #f85149"},
+  toastInfo:{background:"#1f6feb",color:"#fff",border:"1px solid #58a6ff"},
 };
