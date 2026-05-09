@@ -491,6 +491,45 @@ export default function App(){
     [sortedQuests,aMonth,getTeam,tcKK,tcReal,tcQty,teams]
   );
 
+  // Agrega analytics.byFixo por nome (case-insensitive) — Maycon que esta
+  // em multiplos times soma tudo num so card. Calcula totalReal por fixo.
+  const fixosAgregados=useMemo(()=>{
+    const _kkToReal=kk=>{const tcFromKK=(kk*1000)/tcKK;return(tcFromKK/tcQty)*tcReal;};
+    const _tcToReal=tc=>(tc/tcQty)*tcReal;
+    const map={};
+    (analytics.byFixo||[]).forEach(f=>{
+      if(!f.nome)return;
+      const k=String(f.nome).toLowerCase();
+      if(!map[k])map[k]={
+        nome:f.nome,labels:{},teams:new Set(),
+        questsPresente:0,questsAusente:0,
+        lootKK:0,svcTC:0,dropKK:0,dropTC:0,
+      };
+      const m=map[k];
+      m.labels[f.nome]=(m.labels[f.nome]||0)+1;
+      if(f.teamId)m.teams.add(f.teamId);
+      m.questsPresente+=f.questsPresente||0;
+      m.questsAusente+=f.questsAusente||0;
+      m.lootKK+=f.lootKK||0;
+      m.svcTC+=f.svcTC||0;
+      m.dropKK+=f.dropKK||0;
+      m.dropTC+=f.dropTC||0;
+    });
+    return Object.values(map).map(m=>{
+      const realLoot=_kkToReal(m.lootKK);
+      const realSvc=_tcToReal(m.svcTC);
+      const realDrop=_kkToReal(m.dropKK)+_tcToReal(m.dropTC);
+      return {
+        nome:Object.entries(m.labels).sort((a,b)=>b[1]-a[1])[0][0],
+        teams:[...m.teams],
+        questsPresente:m.questsPresente,questsAusente:m.questsAusente,
+        lootKK:m.lootKK,svcTC:m.svcTC,dropKK:m.dropKK,dropTC:m.dropTC,
+        realLoot,realSvc,realDrop,
+        totalReal:realLoot+realSvc+realDrop,
+      };
+    }).sort((a,b)=>b.totalReal-a.totalReal);
+  },[analytics.byFixo,tcKK,tcReal,tcQty]);
+
   const doLogin = async () => {
     const r = await api.login(passInput);
     if(r.ok){
@@ -555,7 +594,7 @@ export default function App(){
 
   if(loading)return <div style={S.loading}>⏳ Carregando...</div>;
 
-  const TABS=[{id:"historico",label:"📜 Histórico"},{id:"itens",label:"💰 Itens"},...(isAdmin?[{id:"admin",label:"⚙️ Admin"},{id:"analise",label:"📊 Análise"}]:[])];
+  const TABS=[{id:"historico",label:"📜 Histórico"},{id:"itens",label:"💰 Itens"},...(isAdmin?[{id:"admin",label:"⚙️ Admin"},{id:"analise",label:"📊 Análise"},{id:"fixos",label:"👥 Fixos"}]:[])];
 
   return (
     <div style={S.root}>
@@ -1055,6 +1094,84 @@ export default function App(){
             <div style={S.chCard}><h3 style={S.chT}>🎮 Bonecos</h3><MiniBar data={analytics.charRank} lk="name" vk="count" color="#feca57" mx={10}/>{analytics.charRank.length===0&&<div style={S.empty}>Sem dados</div>}</div>
             <div style={S.chCard}><h3 style={S.chT}>👤 Dropadores</h3><MiniBar data={analytics.dropadorRank} lk="name" vk="count" color="#2ecc40" mx={10}/>{analytics.dropadorRank.length===0&&<div style={S.empty}>Sem dados</div>}</div>
           </div>
+        </div>}
+
+        {/* FIXOS — analytics individual por pessoa */}
+        {tab==="fixos"&&isAdmin&&<div>
+          <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:13,color:"#8b949e"}}>Mês:</span>
+            <input type="month" value={aMonth} onChange={e=>setAMonth(e.target.value)} style={S.inp}/>
+            {aMonth&&<button onClick={()=>setAMonth("")} style={S.clearBtn}>Todos</button>}
+            <span style={{fontSize:11,color:"#484f58",marginLeft:"auto"}}>
+              {fixosAgregados.length} fixo(s) · ordenado por total R$
+            </span>
+          </div>
+          <div style={{fontSize:11,color:"#484f58",marginBottom:16}}>
+            Quanto cada fixo recebeu individualmente: loot das quests onde estava presente,
+            sua parte do service, e shares dos drops vendidos. Quests sem dados de presença
+            usam fallback (todos os fixos do time considerados presentes).
+          </div>
+
+          {fixosAgregados.length===0?
+            <div style={{...S.empty,padding:40}}>Nenhum fixo com dados ainda — registre quests com presença para ver aqui.</div>
+          :
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(320px, 1fr))",gap:12}}>
+              {fixosAgregados.map(f=>(
+                <div key={f.nome} style={{background:"#161b22",border:"1px solid #30363d",borderRadius:10,padding:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:16,fontWeight:700,color:"#e6edf3"}}>👤 {f.nome}</div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
+                        {f.teams.map(tid=>{
+                          const c=teamColor(teams,tid);
+                          return <span key={tid} style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:`${c}20`,border:`1px solid ${c}`,color:c,fontWeight:600}}>{teamLabel(teams,tid)}</span>;
+                        })}
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:10,color:"#8b949e",textTransform:"uppercase",fontWeight:600}}>Total</div>
+                      <div style={{fontSize:20,fontWeight:800,color:"#00b894"}}>R${f.totalReal.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div style={{display:"flex",gap:10,fontSize:11,color:"#8b949e",marginBottom:10,paddingBottom:10,borderBottom:"1px solid #21262d"}}>
+                    <span style={{color:"#2ecc40"}}>{f.questsPresente} ✓ presente(s)</span>
+                    {f.questsAusente>0&&<span style={{color:"#da3633"}}>{f.questsAusente} ✕ ausente(s)</span>}
+                  </div>
+
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
+                      <span style={{color:"#feca57"}}>💰 Loot</span>
+                      <span style={{color:"#e6edf3",fontFamily:"monospace"}}>
+                        <span style={{color:"#feca57",fontWeight:600}}>{f.lootKK.toFixed(1)}kk</span>
+                        <span style={{color:"#484f58",margin:"0 6px"}}>·</span>
+                        <span>R${f.realLoot.toFixed(2)}</span>
+                      </span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
+                      <span style={{color:"#48dbfb"}}>🔧 Service</span>
+                      <span style={{color:"#e6edf3",fontFamily:"monospace"}}>
+                        <span style={{color:"#48dbfb",fontWeight:600}}>{f.svcTC.toFixed(0)}tc</span>
+                        <span style={{color:"#484f58",margin:"0 6px"}}>·</span>
+                        <span>R${f.realSvc.toFixed(2)}</span>
+                      </span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",fontSize:12}}>
+                      <span style={{color:"#a29bfe"}}>📦 Drops</span>
+                      <span style={{color:"#e6edf3",fontFamily:"monospace"}}>
+                        {f.dropKK>0&&<span style={{color:"#2ecc40",fontWeight:600}}>{f.dropKK.toFixed(2)}kk</span>}
+                        {f.dropKK>0&&f.dropTC>0&&<span style={{color:"#484f58",margin:"0 4px"}}>+</span>}
+                        {f.dropTC>0&&<span style={{color:"#48dbfb",fontWeight:600}}>{f.dropTC.toFixed(1)}tc</span>}
+                        {f.dropKK===0&&f.dropTC===0&&<span style={{color:"#484f58"}}>—</span>}
+                        <span style={{color:"#484f58",margin:"0 6px"}}>·</span>
+                        <span>R${f.realDrop.toFixed(2)}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          }
         </div>}
 
       </main>
