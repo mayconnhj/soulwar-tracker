@@ -65,6 +65,45 @@ const DEFAULT_TEAM_A = ["Conopcas","Verfix","Obonitao Lindão","Mad Tian"];
 const DEFAULT_TEAM_B = ["Lark Zepin","Abel Shaene","Brabubagore","Sokon Eltanke"];
 const DEFAULT_TEAM_C = [];
 
+// Cor padrao por id de time (legado A/B/C). Times novos vem com a cor
+// definida em teams_data[i].color. Se nao tem, cai no DEFAULT_TEAM_COLOR.
+const TEAM_COLORS_LEGADO = { A: '#58a6ff', B: '#da3633', C: '#d29922' };
+const DEFAULT_TEAM_COLOR = '#8b949e';
+
+// Garante que sempre existe uma lista de times — se cfg.teamsData estiver
+// vazio (estado pre-migration ou primeiro load), monta a partir do
+// teamA/teamB/teamC + fixos legados.
+function deriveTeams(cfg) {
+  const td = Array.isArray(cfg.teamsData) ? cfg.teamsData : [];
+  if (td.length > 0) return td;
+  const fixosLegado = cfg.fixos && cfg.fixos.length > 0 ? cfg.fixos : DEFAULT_FIXOS;
+  const mkBonecos = arr => (arr || []).map(c => ({ char: c, dono: '' }));
+  return [
+    { id: 'A', name: 'Time A', color: '#58a6ff', fixos: [...fixosLegado], bonecos: mkBonecos(cfg.teamA) },
+    { id: 'B', name: 'Time B', color: '#da3633', fixos: [...fixosLegado], bonecos: mkBonecos(cfg.teamB) },
+    ...(cfg.teamC && cfg.teamC.length > 0
+      ? [{ id: 'C', name: 'Time C', color: '#d29922', fixos: [...fixosLegado], bonecos: mkBonecos(cfg.teamC) }]
+      : []),
+  ];
+}
+
+// Lookup de um time pelo id, com fallback de nome/cor.
+function findTeam(teams, id) {
+  return teams.find(t => t.id === id) || null;
+}
+
+function teamColor(teams, id) {
+  const t = findTeam(teams, id);
+  if (t && t.color) return t.color;
+  return TEAM_COLORS_LEGADO[id] || DEFAULT_TEAM_COLOR;
+}
+
+function teamLabel(teams, id) {
+  const t = findTeam(teams, id);
+  if (t && t.name) return t.name;
+  return id ? `Time ${id}` : '—';
+}
+
 function Img({name,items,removedItems}){
   const [err,setErr]=useState(false);
   // Item removido nunca mostra imagem — nem via items custom nem via DEFAULT_ITEMS.
@@ -222,6 +261,29 @@ export default function App(){
   const teamA=useMemo(()=>cfg.teamA||DEFAULT_TEAM_A,[cfg.teamA]);
   const teamB=useMemo(()=>cfg.teamB||DEFAULT_TEAM_B,[cfg.teamB]);
   const teamC=useMemo(()=>cfg.teamC||DEFAULT_TEAM_C,[cfg.teamC]);
+  // teams: fonte de verdade nova. Sempre uma lista valida — usa teamsData
+  // se existe, senao deriva do teamA/B/C + fixos legados.
+  const teams=useMemo(()=>deriveTeams(cfg),[cfg]);
+
+  // Auto-backfill: se cfg.teamsData veio do banco mas tem times sem
+  // fixos preenchidos (cenario apos a migration 003 quando cfg.fixos
+  // estava vazio), aplica DEFAULT_FIXOS e persiste. Roda 1x quando o
+  // admin loga e detecta o estado.
+  const backfillRunRef = useRef(false);
+  useEffect(()=>{
+    if (!isAdmin || backfillRunRef.current) return;
+    if (!Array.isArray(cfg.teamsData) || cfg.teamsData.length === 0) return;
+    const needs = cfg.teamsData.some(t => !t.fixos || t.fixos.length === 0);
+    if (!needs) return;
+    backfillRunRef.current = true;
+    const fixed = cfg.teamsData.map(t => ({
+      ...t,
+      fixos: (t.fixos && t.fixos.length > 0) ? t.fixos : [...DEFAULT_FIXOS],
+    }));
+    saveC({ ...cfg, teamsData: fixed });
+    showToast('Fixos padrão aplicados aos times. Edite os fixos do Time C se precisar.', 'info');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[isAdmin, cfg.teamsData]);
 
   const tcKK=useMemo(()=>parseFloat(String(cfg.tcPriceKK||"39").replace(",","."))||39,[cfg.tcPriceKK]);
   const tcReal=useMemo(()=>parseFloat(String(cfg.tcPriceReal||"53").replace(",","."))||53,[cfg.tcPriceReal]);
@@ -450,6 +512,29 @@ export default function App(){
     }
   };
 
+  // Mutators de teams_data — cada um deriva o estado atual e chama saveC.
+  const mutateTeams = useCallback(async (updater) => {
+    const next = updater(deriveTeams(cfg));
+    await saveC({ ...cfg, teamsData: next });
+  }, [cfg]);
+  const genTeamId = () => 'T' + Date.now().toString(36).slice(-4);
+  const addTeam = () => mutateTeams(ts => [...ts, {
+    id: genTeamId(), name: `Time ${ts.length + 1}`, color: '#8b949e',
+    fixos: [...DEFAULT_FIXOS], bonecos: [],
+  }]);
+  const removeTeam = (id) => mutateTeams(ts => ts.filter(t => t.id !== id));
+  const updateTeamField = (id, key, val) => mutateTeams(ts => ts.map(t => t.id === id ? { ...t, [key]: val } : t));
+  const addFixoToTeam = (id, nome) => mutateTeams(ts => ts.map(t => t.id === id
+    ? { ...t, fixos: [...new Set([...(t.fixos || []), nome])] } : t));
+  const rmFixoFromTeam = (id, nome) => mutateTeams(ts => ts.map(t => t.id === id
+    ? { ...t, fixos: (t.fixos || []).filter(f => f !== nome) } : t));
+  const addBonecoToTeam = (id) => mutateTeams(ts => ts.map(t => t.id === id
+    ? { ...t, bonecos: [...(t.bonecos || []), { char: '', dono: '' }] } : t));
+  const rmBonecoFromTeam = (id, idx) => mutateTeams(ts => ts.map(t => t.id === id
+    ? { ...t, bonecos: (t.bonecos || []).filter((_, i) => i !== idx) } : t));
+  const updateBoneco = (id, idx, patch) => mutateTeams(ts => ts.map(t => t.id === id
+    ? { ...t, bonecos: (t.bonecos || []).map((b, i) => i === idx ? { ...b, ...patch } : b) } : t));
+
   const addBossF=async()=>{const v=newBoss.trim();if(!v)return;setNewBoss("");await saveC({...cfg,bosses:[...new Set([...(cfg.bosses||[]),v])],removedBosses:(cfg.removedBosses||[]).filter(x=>x!==v)});};
   const rmBossF=b=>saveC({...cfg,removedBosses:[...new Set([...(cfg.removedBosses||[]),b])]});
   const addFixoF=async()=>{const v=newFixo.trim();if(!v)return;setNewFixo("");await saveC({...cfg,fixos:[...new Set([...(cfg.fixos||[]),v])],removedFixos:(cfg.removedFixos||[]).filter(x=>x!==v)});};
@@ -558,7 +643,7 @@ export default function App(){
                   rows.push(
                     <tr key={rowKey} style={{...base,...sep}}>
                       <td style={S.td}><Img name={d.item} items={allItems} removedItems={cfg.removedItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
-                      <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:d.team==="A"?"#58a6ff":d.team==="B"?"#da3633":d.team==="C"?"#d29922":"#8b949e"}}>{d.team?`Time ${d.team}`:"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
+                      <td style={S.td}>{d.boss||"—"}</td><td style={{...S.td,fontWeight:600,color:teamColor(teams,d.team)}}>{d.team?teamLabel(teams,d.team):"—"}</td><td style={S.td}>{d.char}</td><td style={S.td}>{d.dropador||"—"}</td><td style={S.td}>{d.pagante||"—"}</td>
                       <td style={{...S.td,whiteSpace:"normal",maxWidth:200}}>{supDisp(d.suplentes)}</td>
                       <td style={S.td}>{d.dropDate}</td>
                       {isAdmin&&<><td style={S.td}>{d.loot?`${d.loot}kk`:"—"}</td><td style={S.td}>{d.servicePrice?`${d.servicePrice}tc`:"—"}</td><td style={S.td}>{fmtMin(d.tempo)}</td></>}
@@ -620,7 +705,13 @@ export default function App(){
             {editQuestId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
             <div style={S.form}>
               <label style={S.lbl}>Pagante<input value={nf.pagante} onChange={e=>setNf({...nf,pagante:e.target.value})} style={S.inp}/></label>
-              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}><option value="">Selecione o Time...</option><option value="A">🅰️ Time A — {teamA.join(", ")}</option><option value="B">🅱️ Time B — {teamB.join(", ")}</option>{teamC.length>0&&<option value="C">🅲 Time C — {teamC.join(", ")}</option>}</select></label>
+              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}>
+                <option value="">Selecione o Time...</option>
+                {teams.map(t=>{
+                  const charsLabel=(t.bonecos||[]).map(b=>b.char).filter(Boolean).join(", ")||(t.fixos||[]).join(", ");
+                  return <option key={t.id} value={t.id}>{t.name||`Time ${t.id}`}{charsLabel?` — ${charsLabel}`:""}</option>;
+                })}
+              </select></label>
               <label style={S.lbl}>Loot da Quest (KK)<input value={nf.loot} onChange={e=>setNf({...nf,loot:e.target.value})} style={S.inp} placeholder="6.1 = 6.1kk"/></label>
               <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
               <label style={S.lbl}>Tempo da Quest (min)<input value={nf.tempo} onChange={e=>setNf({...nf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{nf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(nf.tempo)}</span>}</label>
@@ -680,7 +771,7 @@ export default function App(){
                 const editStyle = isEditing ? {background:"rgba(31,111,235,.20)",outline:"1px solid #1f6feb"} : {};
                 return <tr key={q.id} style={{...baseRow,...editStyle}}>
                   <td style={S.td}>{q.dropDate||"—"}</td>
-                  <td style={{...S.td,fontWeight:600,color:q.team==="A"?"#58a6ff":q.team==="B"?"#da3633":q.team==="C"?"#d29922":"#8b949e"}}>{q.team?`Time ${q.team}`:"—"}</td>
+                  <td style={{...S.td,fontWeight:600,color:teamColor(teams,q.team)}}>{q.team?teamLabel(teams,q.team):"—"}</td>
                   <td style={S.td}>{q.pagante||"—"}</td>
                   <td style={{...S.td,whiteSpace:"normal",maxWidth:150,fontSize:11}}>{supDisp(q.suplentes)}</td>
                   <td style={S.td}>{q.loot?`${q.loot}kk`:"—"}</td>
@@ -715,10 +806,65 @@ export default function App(){
               <div style={S.dbA}><input value={newItemName} onChange={e=>setNewItemName(e.target.value)} placeholder="Nome" style={{...S.inp,flex:1}}/><input value={newItemUrl} onChange={e=>setNewItemUrl(e.target.value)} placeholder="URL img (opt)" style={{...S.inp,flex:1}}/><button onClick={addItemF} style={S.plusBtn}>+</button></div>
               <div style={S.dbL}>{itemNames.map(i=><div key={i} style={S.dbI}><div style={{display:"flex",alignItems:"center",gap:4}}><Img name={i} items={allItems} removedItems={cfg.removedItems}/><span style={{marginLeft:4,fontSize:12}}>{i}</span></div><button onClick={()=>rmItemF(i)} style={S.dbD}>✕</button></div>)}</div>
             </div>
-            {[{title:"🅰️ Time A",list:teamA,key:"teamA"},{title:"🅱️ Time B",list:teamB,key:"teamB"},{title:"🅲 Time C",list:teamC,key:"teamC"}].map(({title,list,key})=><div key={key} style={S.dbCard}><h3 style={S.dbT}>{title} ({list.length})</h3>
-              <div style={S.dbA}><input placeholder="Add boneco..." id={`_${key}`} style={{...S.inp,flex:1}} onKeyDown={e=>{if(e.key==="Enter"&&e.target.value.trim()){saveC({...cfg,[key]:[...list,e.target.value.trim()]});e.target.value="";}}} /><button onClick={()=>{const el=document.getElementById(`_${key}`);if(el?.value.trim()){saveC({...cfg,[key]:[...list,el.value.trim()]});el.value="";}}} style={S.plusBtn}>+</button></div>
-              <div style={S.dbL}>{list.map((c,i)=><div key={i} style={S.dbI}><span>{c}</span><button onClick={()=>saveC({...cfg,[key]:list.filter((_,x)=>x!==i)})} style={S.dbD}>✕</button></div>)}</div>
-            </div>)}
+            {/* Card único de Times — substitui os 3 cards antigos Time A/B/C */}
+            <div style={{...S.dbCard,flex:"1 1 100%",maxHeight:"none"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <h3 style={S.dbT}>🛡️ Times ({teams.length})</h3>
+                <button onClick={addTeam} style={{...S.plusBtn,background:"#238636"}}>+ Novo Time</button>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {teams.map(t=>(
+                  <div key={t.id} style={{border:`1px solid ${t.color||DEFAULT_TEAM_COLOR}`,borderRadius:8,padding:12}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                      <div style={{width:14,height:14,borderRadius:"50%",background:t.color||DEFAULT_TEAM_COLOR,flexShrink:0}}/>
+                      <input type="text" value={t.name||""} onChange={e=>updateTeamField(t.id,"name",e.target.value)}
+                             style={{...S.inp,fontWeight:700,color:t.color||"#e6edf3",flex:"1 1 140px",minWidth:120}}/>
+                      <input type="color" value={t.color||DEFAULT_TEAM_COLOR} onChange={e=>updateTeamField(t.id,"color",e.target.value)}
+                             style={{width:32,height:32,border:"none",cursor:"pointer",background:"transparent",padding:0}} title="Cor do time"/>
+                      <span style={{fontSize:10,color:"#484f58",fontFamily:"monospace"}}>id: {t.id}</span>
+                      <button onClick={()=>{if(confirm(`Remover ${t.name}? Quests existentes mantém o id "${t.id}".`))removeTeam(t.id);}}
+                              style={{...S.dbD,fontSize:14}} title="Remover time">🗑️</button>
+                    </div>
+
+                    {/* Fixos */}
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,color:"#8b949e",fontWeight:600,marginBottom:4}}>FIXOS ({(t.fixos||[]).length})</div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                        {(t.fixos||[]).map(f=>(
+                          <span key={f} style={{background:"#0d1117",border:"1px solid #30363d",borderRadius:4,padding:"3px 8px",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}>
+                            {f}
+                            <button onClick={()=>rmFixoFromTeam(t.id,f)} style={{background:"transparent",border:"none",color:"#da3633",cursor:"pointer",fontSize:11,padding:0,marginLeft:2}}>✕</button>
+                          </span>
+                        ))}
+                        <input type="text" placeholder="+ adicionar fixo" list={`pool-fixos-${t.id}`}
+                               onKeyDown={e=>{if(e.key==="Enter"&&e.target.value.trim()){addFixoToTeam(t.id,e.target.value.trim());e.target.value="";}}}
+                               style={{...S.inp,fontSize:12,padding:"3px 8px",minWidth:140,flex:"0 1 180px"}}/>
+                        <datalist id={`pool-fixos-${t.id}`}>{allFixos.map(f=><option key={f} value={f}/>)}</datalist>
+                      </div>
+                    </div>
+
+                    {/* Bonecos com dono */}
+                    <div>
+                      <div style={{fontSize:11,color:"#8b949e",fontWeight:600,marginBottom:4}}>BONECOS ({(t.bonecos||[]).length})</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                        {(t.bonecos||[]).map((b,idx)=>(
+                          <div key={idx} style={{display:"flex",gap:6,alignItems:"center"}}>
+                            <input value={b.char||""} onChange={e=>updateBoneco(t.id,idx,{char:e.target.value})}
+                                   placeholder="Nome do boneco" style={{...S.inp,fontSize:12,flex:"1 1 160px"}}/>
+                            <input value={b.dono||""} onChange={e=>updateBoneco(t.id,idx,{dono:e.target.value})}
+                                   placeholder="Dono (fixo, opcional)" list={`pool-fixos-${t.id}`}
+                                   style={{...S.inp,fontSize:12,flex:"1 1 140px"}}/>
+                            <button onClick={()=>rmBonecoFromTeam(t.id,idx)} style={S.dbD} title="Remover boneco">✕</button>
+                          </div>
+                        ))}
+                        <button onClick={()=>addBonecoToTeam(t.id)} style={{...S.plusBtn,background:"#1f6feb",alignSelf:"flex-start",marginTop:4,fontSize:11}}>+ Adicionar Boneco</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {teams.length===0&&<div style={{color:"#484f58",fontSize:12,padding:8,textAlign:"center"}}>Nenhum time cadastrado.</div>}
+              </div>
+            </div>
           </div>}
 
           {adminSub==="senha"&&<div style={{...S.form,maxWidth:360}}>
