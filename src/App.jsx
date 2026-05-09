@@ -744,7 +744,7 @@ export default function App(){
               <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>Drops de Item {nf.drops.length>0&&<span style={{color:"#2ecc40"}}>({nf.drops.length})</span>}</span>
-                  {!editQuestId&&<button onClick={openDropModal} style={{...S.plusBtn,background:"#238636"}}>📦 + Adicionar Drop</button>}
+                  <button onClick={openDropModal} style={{...S.plusBtn,background:"#238636"}}>📦 + Adicionar Drop</button>
                 </div>
                 {nf.drops.length>0?(
                   <div style={{display:"flex",flexDirection:"column",gap:6}}>
