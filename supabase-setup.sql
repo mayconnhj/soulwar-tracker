@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS config (
   team_a JSONB DEFAULT '["Conopcas","Verfix","Obonitao Lindão","Mad Tian"]'::jsonb,
   team_b JSONB DEFAULT '["Lark Zepin","Abel Shaene","Brabubagore","Sokon Eltanke"]'::jsonb,
   team_c JSONB DEFAULT '[]'::jsonb,
+  teams_data JSONB DEFAULT '[]'::jsonb,
   tc_price_real TEXT DEFAULT '53',
   tc_price_kk TEXT DEFAULT '39',
   tc_qty TEXT DEFAULT '250',
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS config (
   removed_items JSONB DEFAULT '[]'::jsonb
 );
 ALTER TABLE config ADD COLUMN IF NOT EXISTS team_c JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE config ADD COLUMN IF NOT EXISTS teams_data JSONB DEFAULT '[]'::jsonb;
 -- auth_version invalida tokens antigos quando a senha admin e trocada.
 ALTER TABLE config ADD COLUMN IF NOT EXISTS auth_version INT DEFAULT 0;
 
@@ -136,6 +138,7 @@ CREATE TABLE IF NOT EXISTS team_config (
   team_a JSONB DEFAULT '[]'::jsonb,
   team_b JSONB DEFAULT '[]'::jsonb,
   team_c JSONB DEFAULT '[]'::jsonb,
+  teams_data JSONB DEFAULT '[]'::jsonb,
   tc_price_real TEXT DEFAULT '53',
   tc_price_kk TEXT DEFAULT '39',
   tc_qty TEXT DEFAULT '250',
@@ -147,6 +150,9 @@ CREATE TABLE IF NOT EXISTS team_config (
 
 ALTER TABLE quests ADD COLUMN IF NOT EXISTS team_id TEXT DEFAULT 'default';
 ALTER TABLE drops  ADD COLUMN IF NOT EXISTS team_id TEXT DEFAULT 'default';
+ALTER TABLE quests ADD COLUMN IF NOT EXISTS ausentes JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE quests ADD COLUMN IF NOT EXISTS bonecos_pilotados JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE team_config ADD COLUMN IF NOT EXISTS teams_data JSONB DEFAULT '[]'::jsonb;
 
 INSERT INTO teams (id, name, slug)
 VALUES ('default', 'Time Default', 'default')
