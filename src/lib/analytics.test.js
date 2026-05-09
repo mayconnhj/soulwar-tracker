@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseDate, fromIso, fmtMin, parseSold, saleHint, aggregateCi,
-  computeAnalytics, BASE_DIVISOR,
+  computeAnalytics, BASE_DIVISOR, isValidSalePrice,
 } from './analytics.js';
 
 describe('parseDate', () => {
@@ -61,11 +61,10 @@ describe('parseSold', () => {
 });
 
 describe('saleHint', () => {
-  it('warns when no unit', () => {
+  it('errors when no unit (bloqueia salvar)', () => {
     const h = saleHint('100');
-    expect(h.warn).toBe(true);
-    expect(h.text).toContain('100kk');
-    expect(h.text).toContain('sem unidade');
+    expect(h.error).toBe(true);
+    expect(h.text).toMatch(/kk.*tc/i);
   });
   it('shows kk hint', () => {
     expect(saleHint('100kk')).toEqual({ text: '→ 100kk', warn: false });
@@ -77,10 +76,27 @@ describe('saleHint', () => {
     expect(saleHint('')).toBeNull();
     expect(saleHint('   ')).toBeNull();
   });
-  it('warns when value not recognized', () => {
+  it('errors when value not recognized', () => {
     const h = saleHint('abc');
-    expect(h.warn).toBe(true);
+    expect(h.error).toBe(true);
     expect(h.text).toBe('valor não reconhecido');
+  });
+});
+
+describe('isValidSalePrice', () => {
+  it('aceita valores com unidade', () => {
+    expect(isValidSalePrice('100kk')).toBe(true);
+    expect(isValidSalePrice('250tc')).toBe(true);
+  });
+  it('rejeita sem unidade', () => {
+    expect(isValidSalePrice('100')).toBe(false);
+  });
+  it('rejeita lixo', () => {
+    expect(isValidSalePrice('abc')).toBe(false);
+  });
+  it('aceita string vazia (deletar venda)', () => {
+    expect(isValidSalePrice('')).toBe(true);
+    expect(isValidSalePrice('   ')).toBe(true);
   });
 });
 
@@ -178,5 +194,34 @@ describe('computeAnalytics', () => {
     // Sanity check: deve ser positivo, finito, e maior que so unit alone
     expect(a.grandTotalReal).toBeGreaterThan(a.totalUnitReal);
     expect(Number.isFinite(a.grandTotalReal)).toBe(true);
+  });
+
+  it('reporta vendas sem time identificado em vez de ignorar', () => {
+    // Drop com soldPrice mas sem team na quest e sem char em getTeam
+    const orphans = [{
+      id: 'q3', dropDate: '07/05/2026', team: '',
+      drops: [{ id: 'd9', item: 'Soulcutter', char: 'Desconhecido', soldPrice: '50kk' }],
+    }];
+    const a = computeAnalytics({
+      quests: orphans, aMonth: '', tcKK, tcReal, tcQty,
+      getTeam: () => null,
+    });
+    expect(a.unmatchedSales).toBe(1);
+    expect(a.unmatchedKK).toBe(50);
+    expect(a.tAkk).toBe(0); // nao foi pra time A
+    expect(a.unmatchedRealVal).toBeGreaterThan(0);
+  });
+
+  it('rankings ignoram drops sem item (quests fantasmas)', () => {
+    const withGhost = [{
+      id: 'qg', dropDate: '07/05/2026', team: 'A',
+      drops: [
+        { id: 'da', item: 'Soulcutter', char: 'Maycon', dropador: 'Du' },
+        { id: 'db', item: '', char: 'Bertolasz', dropador: 'Bertolasz' }, // fantasma
+      ],
+    }];
+    const a = computeAnalytics({ quests: withGhost, aMonth: '', tcKK, tcReal, tcQty });
+    expect(a.charRank.find(r => r.name === 'Bertolasz')).toBeUndefined();
+    expect(a.charRank.find(r => r.name === 'Maycon').count).toBe(1);
   });
 });

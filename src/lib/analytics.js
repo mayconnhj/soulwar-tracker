@@ -37,14 +37,21 @@ export function parseSold(p) {
 }
 
 // Hint visual no input de venda: mostra como o valor vai ser interpretado.
+// error=true bloqueia o save (no front); warn=true so alerta sem bloquear.
 export function saleHint(s) {
   if (!s || !String(s).trim()) return null;
   const t = String(s).toLowerCase();
   const hasUnit = t.includes('kk') || t.includes('tc');
   const { kk, tc } = parseSold(s);
-  if (kk === 0 && tc === 0) return { text: 'valor não reconhecido', warn: true };
-  if (!hasUnit) return { text: `→ ${kk}kk (sem unidade — adicione "tc" se for em TC)`, warn: true };
+  if (kk === 0 && tc === 0) return { text: 'valor não reconhecido', error: true };
+  if (!hasUnit) return { text: '⚠️ Adicione "kk" ou "tc" — sem unidade não dá pra salvar', error: true };
   return { text: kk ? `→ ${kk}kk` : `→ ${tc}tc`, warn: false };
+}
+
+// Helper pro frontend: true se o valor de venda esta valido pra salvar.
+export function isValidSalePrice(s) {
+  const h = saleHint(s);
+  return !h || !h.error;
 }
 
 // Agrega rows case-insensitive: "Maycon"/"maycon" viram a mesma entrada,
@@ -125,24 +132,36 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, getTeam 
   const soldData = allDrops.filter(d => d.soldPrice);
   soldData.forEach(d => { const { kk, tc } = parseSold(d.soldPrice); soldKK += kk; soldTC += tc; });
 
-  const itemRank = aggregateCi(allDrops.filter(d => d.item), d => d.item);
-  const charRank = aggregateCi(allDrops, d => d.char);
-  const dropadorRank = aggregateCi(allDrops, d => d.dropador);
+  // Rankings consideram so drops com item — quests "fantasmas" (sem drop,
+  // so com pagante/service) nao contam pra "quem mais dropou".
+  const dropsComItem = allDrops.filter(d => d.item);
+  const itemRank = aggregateCi(dropsComItem, d => d.item);
+  const charRank = aggregateCi(dropsComItem, d => d.char);
+  const dropadorRank = aggregateCi(dropsComItem, d => d.dropador);
 
   let tAkk = 0, tAtc = 0, tAn = 0, uAkk = 0, uAtc = 0;
   let tBkk = 0, tBtc = 0, tBn = 0, uBkk = 0, uBtc = 0;
   let tCkk = 0, tCtc = 0, tCn = 0, uCkk = 0, uCtc = 0;
+  // Vendas que nao caem em nenhum time (chair sem questTeam e sem match
+  // em teamA/B/C). Hoje somem do calculo unitario — vamos avisar visualmente.
+  let unmatchedSales = 0, unmatchedKK = 0, unmatchedTC = 0;
 
   soldData.forEach(d => {
     const team = d.questTeam || (getTeam ? getTeam(d.char) : null);
-    if (!team) return;
     const { kk, tc } = parseSold(d.soldPrice);
+    if (!team) {
+      unmatchedSales++;
+      unmatchedKK += kk;
+      unmatchedTC += tc;
+      return;
+    }
     const div = BASE_DIVISOR;
 
     if (team === 'A') { tAkk += kk; tAtc += tc; tAn++; uAkk += kk / div; uAtc += tc / div; }
     else if (team === 'B') { tBkk += kk; tBtc += tc; tBn++; uBkk += kk / div; uBtc += tc / div; }
     else if (team === 'C') { tCkk += kk; tCtc += tc; tCn++; uCkk += kk / div; uCtc += tc / div; }
   });
+  const unmatchedRealVal = _kkToReal(unmatchedKK) + _tcToReal(unmatchedTC);
 
   const totalUnitKK = uAkk + uBkk + uCkk;
   const totalUnitTC = uAtc + uBtc + uCtc;
@@ -183,5 +202,6 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, getTeam 
     svcQuestAShareTC, svcQuestBShareTC, svcQuestCShareTC,
     svcQuestAShareReal, svcQuestBShareReal, svcQuestCShareReal,
     totalSvcAll, grandTotalReal,
+    unmatchedSales, unmatchedKK, unmatchedTC, unmatchedRealVal,
   };
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
-  BASE_DIVISOR, parseDate, fromIso, fmtMin, saleHint,
+  BASE_DIVISOR, parseDate, fromIso, fmtMin, saleHint, isValidSalePrice,
   computeAnalytics,
 } from "./lib/analytics.js";
 
@@ -317,6 +317,11 @@ export default function App(){
 
   // Marcar venda de UM drop específico
   const saveSale = async (dropId) => {
+    // Bloqueia salvar venda sem unidade KK/TC explicita — evita interpretacao errada.
+    if (salePrice && !isValidSalePrice(salePrice)) {
+      showToast('Preço precisa ter unidade: ex 100kk ou 250tc', 'error');
+      return;
+    }
     await api.updateDropSale(dropId, { soldPrice: salePrice, soldDate: fromIso(saleDate) });
     setEditId(null); setSalePrice(""); setSaleDate("");
     await load();
@@ -473,7 +478,7 @@ export default function App(){
             </div>
             <div style={S.tcBox}><span style={S.tcLb}>TC</span>
               {isAdmin?<input value={cfg.tcPriceKK||""} onChange={e=>onChangeCotacao('tcPriceKK',e.target.value)} style={S.tcInp}/>:<span style={S.tcV}>{cfg.tcPriceKK||"—"}k</span>}
-              <span style={S.tcS}>/1tc</span>
+              <span style={S.tcS}>k/1tc</span>
             </div>
             {isAdmin?<button onClick={()=>{sessionStorage.removeItem('admin_token');setIsAdmin(false);setTab("historico");}} style={S.logoutBtn}>Sair</button>:<button onClick={()=>setShowLogin(!showLogin)} style={S.adminBtn}>🔒 Admin</button>}
           </div>
@@ -581,7 +586,7 @@ export default function App(){
                   <input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)} style={S.sInp}/>
                   <button onClick={()=>saveSale(d.dropId)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button>
                 </div>
-                {(()=>{const h=saleHint(salePrice);return h?<div style={{fontSize:10,color:h.warn?"#feca57":"#58a6ff"}}>{h.text}</div>:null;})()}
+                {(()=>{const h=saleHint(salePrice);return h?<div style={{fontSize:10,color:h.error?"#f85149":h.warn?"#feca57":"#58a6ff"}}>{h.text}</div>:null;})()}
               </div>:<button onClick={()=>{setEditId(d.dropId);setSalePrice("");setSaleDate("");}} style={S.sellBtn}>Vender</button>}</td>}
             </tr>)}
             {unsold.length===0&&<tr><td colSpan={isAdmin?6:5} style={S.empty}>Nenhum pendente</td></tr>}
@@ -592,7 +597,7 @@ export default function App(){
               <td style={S.td}><Img name={d.item} items={allItems} removedItems={cfg.removedItems}/> <span style={{marginLeft:6}}>{d.item}</span></td>
               <td style={S.td}>{d.char}</td><td style={S.td}>{d.dropDate}</td>
               {editId===d.dropId&&isAdmin?<>
-                <td style={S.td}><input value={salePrice} onChange={e=>setSalePrice(e.target.value)} placeholder="Preço" style={S.sInp}/>{(()=>{const h=saleHint(salePrice);return h?<div style={{fontSize:10,color:h.warn?"#feca57":"#58a6ff",marginTop:2}}>{h.text}</div>:null;})()}</td>
+                <td style={S.td}><input value={salePrice} onChange={e=>setSalePrice(e.target.value)} placeholder="Preço" style={S.sInp}/>{(()=>{const h=saleHint(salePrice);return h?<div style={{fontSize:10,color:h.error?"#f85149":h.warn?"#feca57":"#58a6ff",marginTop:2}}>{h.text}</div>:null;})()}</td>
                 <td style={S.td}><input type="date" value={saleDate} onChange={e=>setSaleDate(e.target.value)} style={S.sInp}/></td>
                 <td style={S.td}><button onClick={()=>saveSale(d.dropId)} style={S.svBtn}>✓</button><button onClick={()=>setEditId(null)} style={S.cxBtn}>✕</button></td>
               </>:<>
@@ -732,6 +737,14 @@ export default function App(){
             <input type="month" value={aMonth} onChange={e=>setAMonth(e.target.value)} style={S.inp}/>
             {aMonth&&<button onClick={()=>setAMonth("")} style={S.clearBtn}>Todos</button>}
           </div>
+          {analytics.unmatchedSales>0&&<div style={{background:"rgba(218,54,51,.12)",border:"1px solid #da3633",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#f85149"}}>
+            ⚠️ {analytics.unmatchedSales} venda(s) não atribuída(s) a nenhum time —
+            {analytics.unmatchedKK>0&&` ${analytics.unmatchedKK.toFixed(1)}kk`}
+            {analytics.unmatchedKK>0&&analytics.unmatchedTC>0&&" + "}
+            {analytics.unmatchedTC>0&&` ${analytics.unmatchedTC.toFixed(0)}tc`}
+            {" "}(R${analytics.unmatchedRealVal.toFixed(2)}) <strong>fora do total por fixo</strong>.
+            Confira se o boneco de cada drop está em algum time A/B/C ou se a quest tem um time atribuído.
+          </div>}
           <div style={{display:"flex",flexWrap:"wrap",gap:10,marginBottom:24}}>
             <StatCard label="Total de Quest's" value={analytics.totalQuests} color="#58a6ff"/>
             <StatCard label="Total de Drops" value={analytics.totalDrops} color="#a29bfe"/>
