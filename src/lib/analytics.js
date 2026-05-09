@@ -1,8 +1,8 @@
 // Helpers de parsing/formatacao + calculo de analytics da Soulwar.
 // Extraidos do App.jsx pra serem testaveis isoladamente.
 
-export const BASE_DIVISOR = 7;
-const SVC_DIV = 5; // service e dividido por 5 antes de virar share por fixo
+export const BASE_DIVISOR = 7;       // divisor de drops para quests sem dados de presenca (legacy)
+const SVC_DIV_DEFAULT = 5;            // divisor padrao do service quando o time nao tem fixos definidos
 
 export function parseDate(d) {
   if (!d) return null;
@@ -74,21 +74,90 @@ export function aggregateCi(rows, getKey) {
 }
 
 /**
+ * Distribui uma quest entre seus recipientes:
+ *  - recipientesLootSvc: quem recebe loot e service (fixos presentes +
+ *    suplentes que substituem fixos ausentes).
+ *  - recipientesDrops: quem recebe share dos drops (recipientes loot/svc
+ *    + suplentes em vagas extras + donos ausentes cujo boneco rolou).
+ *  - divisorDrops: tamanho de recipientesDrops.
+ *  - divisorService: numero de fixos do time (regra do user: service / 5
+ *    sempre, mesmo com presenca menor).
+ *
+ * Detecta quest LEGADA (sem dados de presenca) e usa fallback compativel
+ * com o calculo antigo: BASE_DIVISOR=7 nos drops, todos os fixos do time
+ * recebem loot/service.
+ */
+export function questDistribution(q, teamFixos) {
+  const fixos = Array.isArray(teamFixos) ? teamFixos : [];
+  const ausentesSet = new Set(q.ausentes || []);
+  const sups = (q.suplentes || []).filter(s => s.nome);
+  const bonecosPil = q.bonecosPilotados || [];
+
+  const isLegacy = ausentesSet.size === 0 && sups.length === 0 && bonecosPil.length === 0;
+
+  if (isLegacy) {
+    return {
+      isLegacy: true,
+      recipientesLootSvc: [...fixos],
+      recipientesDrops: [...fixos],
+      divisorDrops: BASE_DIVISOR,
+      divisorService: fixos.length || SVC_DIV_DEFAULT,
+      ausentesComBonecoPilotado: [],
+    };
+  }
+
+  const presentesFixos = fixos.filter(f => !ausentesSet.has(f));
+  const supsSubstituindo = sups.filter(s => s.lugarDe);  // s.lugarDe = nome de fixo
+  const supsExtras = sups.filter(s => !s.lugarDe);
+
+  const recipientesLootSvc = [
+    ...presentesFixos,
+    ...supsSubstituindo.map(s => s.nome),
+  ];
+
+  // Donos que estao em ausentes E tiveram seu boneco pilotado por outro.
+  const donosAusenteComBoneco = [...new Set(
+    bonecosPil
+      .filter(b => b.dono && ausentesSet.has(b.dono) && b.piloto && b.piloto !== b.dono)
+      .map(b => b.dono)
+  )];
+
+  const recipientesDrops = [
+    ...recipientesLootSvc,
+    ...supsExtras.map(s => s.nome),
+    ...donosAusenteComBoneco,
+  ];
+
+  return {
+    isLegacy: false,
+    recipientesLootSvc,
+    recipientesDrops,
+    divisorDrops: recipientesDrops.length,
+    divisorService: fixos.length || SVC_DIV_DEFAULT,
+    ausentesComBonecoPilotado: donosAusenteComBoneco,
+  };
+}
+
+/**
  * Calcula todos os agregados que a aba Analise mostra.
  *
  * @param {object} args
- *   - quests: array de quests sorted (opcional aMonth filter aplicado fora ou aqui)
+ *   - quests: array de quests sorted (filtro aMonth aplicado dentro)
  *   - aMonth: "YYYY-MM" pra filtrar por mes, ou "" pra todos
- *   - tcKK: cotacao 1tc -> KK (numero, ex 39)
- *   - tcReal: cotacao tcQty TC -> R$ (numero, ex 53)
- *   - tcQty: quantidade TC do par (ex 250)
+ *   - tcKK: cotacao 1tc -> K (ex: 39 = 39 mil tibianos)
+ *   - tcReal: cotacao tcQty TC -> R$ (ex: 53)
+ *   - tcQty: quantidade TC do par (ex: 250)
+ *   - teams: array de {id, name, color, fixos, bonecos} (opcional)
  *   - getTeam: (charName) -> 'A'|'B'|'C'|null  (fallback caso quest.team vazio)
  */
-export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, getTeam }) {
+export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, getTeam }) {
   const _kkToReal = kk => { const tcFromKK = (kk * 1000) / tcKK; return (tcFromKK / tcQty) * tcReal; };
   const _tcToReal = tc => (tc / tcQty) * tcReal;
+  const teamsArr = Array.isArray(teams) ? teams : [];
+  const teamById = id => teamsArr.find(t => t.id === id) || null;
 
-  let questData = quests;
+  // Filtro por mes
+  let questData = Array.isArray(quests) ? quests : [];
   if (aMonth) {
     questData = questData.filter(q => {
       const dt = parseDate(q.dropDate); if (!dt) return false;
@@ -100,108 +169,207 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, getTeam 
     ...d, questTeam: q.team, questDate: q.dropDate,
   })));
 
-  let totalLoot = 0, totalSvcTC = 0, soldKK = 0, soldTC = 0, totalTempo = 0;
-  let lootQuestA = 0, lootQuestB = 0, lootQuestC = 0;
-  let svcQuestA = 0, svcQuestB = 0, svcQuestC = 0;
+  // ── Buckets por time ──────────────────────────────────────────────
+  const byTeamMap = {};
+  function bucketTeam(id) {
+    if (!byTeamMap[id]) {
+      const t = teamById(id);
+      byTeamMap[id] = {
+        id,
+        name: (t && t.name) || (id ? `Time ${id}` : '—'),
+        color: (t && t.color) || '#8b949e',
+        numFixos: (t && t.fixos && t.fixos.length) || SVC_DIV_DEFAULT,
+        // Loot
+        lootSomado: 0,           // soma simples de q.loot (== loot que cada recipiente recebeu somado)
+        lootTotal: 0,            // sum q.loot * num_recipientes (loot total circulado no time)
+        // Service
+        svcSomado: 0,            // sum servicePrice
+        svcShareTC: 0,           // svcSomado / divisorService
+        // Drops vendidos
+        soldKK: 0, soldTC: 0, nSold: 0,
+        // Shares de drops (somatorio de soldPrice / divisorDrops por drop)
+        shareKK: 0, shareTC: 0,
+        // Quests
+        nQuests: 0,
+      };
+    }
+    return byTeamMap[id];
+  }
 
+  // ── Buckets por fixo (caso individual — alimentar aba "Fixos") ────
+  const byFixoMap = {};
+  function bucketFixo(nome, teamId) {
+    const key = `${teamId || ''}/${String(nome || '').toLowerCase()}`;
+    if (!byFixoMap[key]) {
+      byFixoMap[key] = {
+        nome, teamId,
+        questsPresente: 0, questsAusente: 0,
+        lootKK: 0, svcTC: 0,
+        dropKK: 0, dropTC: 0,
+      };
+    }
+    return byFixoMap[key];
+  }
+
+  // ── Globais ───────────────────────────────────────────────────────
+  let totalLoot = 0, totalSvcTC = 0, soldKK = 0, soldTC = 0, totalTempo = 0;
+  let unmatchedSales = 0, unmatchedKK = 0, unmatchedTC = 0;
+
+  // ── Loop principal das quests ─────────────────────────────────────
   questData.forEach(q => {
-    if (q.loot) {
-      const v = parseFloat(String(q.loot).replace(',', '.'));
-      if (!isNaN(v)) {
-        totalLoot += v;
-        if (q.team === 'A') lootQuestA += v;
-        else if (q.team === 'B') lootQuestB += v;
-        else if (q.team === 'C') lootQuestC += v;
+    const teamId = q.team || '';
+    const team = teamId ? teamById(teamId) : null;
+    const teamFixos = (team && team.fixos) || [];
+    const dist = questDistribution(q, teamFixos);
+
+    if (teamId) {
+      const b = bucketTeam(teamId);
+      b.nQuests++;
+    }
+
+    // Loot
+    const lootVal = q.loot ? parseFloat(String(q.loot).replace(',', '.')) : NaN;
+    if (!isNaN(lootVal) && lootVal > 0) {
+      totalLoot += lootVal;
+      if (teamId) {
+        const b = bucketTeam(teamId);
+        b.lootSomado += lootVal;
+        b.lootTotal += lootVal * (dist.recipientesLootSvc.length || 0);
       }
+      dist.recipientesLootSvc.forEach(nome => {
+        bucketFixo(nome, teamId).lootKK += lootVal;
+      });
     }
-    if (q.servicePrice) {
-      const v = parseFloat(String(q.servicePrice).replace(',', '.'));
-      if (!isNaN(v)) {
-        totalSvcTC += v;
-        if (q.team === 'A') svcQuestA += v;
-        else if (q.team === 'B') svcQuestB += v;
-        else if (q.team === 'C') svcQuestC += v;
+
+    // Service
+    const svcVal = q.servicePrice ? parseFloat(String(q.servicePrice).replace(',', '.')) : NaN;
+    if (!isNaN(svcVal) && svcVal > 0) {
+      totalSvcTC += svcVal;
+      const sharePerRecipient = dist.divisorService > 0 ? (svcVal / dist.divisorService) : 0;
+      if (teamId) {
+        const b = bucketTeam(teamId);
+        b.svcSomado += svcVal;
+        b.svcShareTC += sharePerRecipient;
       }
+      dist.recipientesLootSvc.forEach(nome => {
+        bucketFixo(nome, teamId).svcTC += sharePerRecipient;
+      });
     }
-    if (q.tempo) {
-      const v = parseInt(q.tempo);
-      if (!isNaN(v)) totalTempo += v;
+
+    // Tempo
+    const tempoVal = q.tempo ? parseInt(q.tempo) : NaN;
+    if (!isNaN(tempoVal)) totalTempo += tempoVal;
+
+    // Quests presentes/ausentes por fixo
+    if (teamFixos.length) {
+      const ausentesSet = new Set(q.ausentes || []);
+      teamFixos.forEach(f => {
+        if (ausentesSet.has(f)) bucketFixo(f, teamId).questsAusente++;
+        else bucketFixo(f, teamId).questsPresente++;
+      });
     }
+
+    // Drops vendidos
+    (q.drops || []).filter(d => d.soldPrice).forEach(d => {
+      const { kk, tc } = parseSold(d.soldPrice);
+      soldKK += kk; soldTC += tc;
+
+      const dropTeam = teamId || (getTeam ? getTeam(d.char) : null);
+      if (!dropTeam) {
+        unmatchedSales++;
+        unmatchedKK += kk;
+        unmatchedTC += tc;
+        return;
+      }
+
+      const b = bucketTeam(dropTeam);
+      b.soldKK += kk; b.soldTC += tc; b.nSold++;
+      const div = dist.divisorDrops || BASE_DIVISOR;
+      const sKK = kk / div, sTC = tc / div;
+      b.shareKK += sKK; b.shareTC += sTC;
+
+      dist.recipientesDrops.forEach(nome => {
+        bucketFixo(nome, dropTeam).dropKK += sKK;
+        bucketFixo(nome, dropTeam).dropTC += sTC;
+      });
+    });
   });
 
-  const soldData = allDrops.filter(d => d.soldPrice);
-  soldData.forEach(d => { const { kk, tc } = parseSold(d.soldPrice); soldKK += kk; soldTC += tc; });
+  const unmatchedRealVal = _kkToReal(unmatchedKK) + _tcToReal(unmatchedTC);
 
-  // Rankings consideram so drops com item — quests "fantasmas" (sem drop,
-  // so com pagante/service) nao contam pra "quem mais dropou".
+  // ── Pos-processa byTeam: calcula valores em R$ e medias ───────────
+  const byTeam = Object.values(byTeamMap).map(b => {
+    const lootSomadoReal = _kkToReal(b.lootSomado);
+    const svcShareReal = _tcToReal(b.svcShareTC);
+    const shareKKReal = _kkToReal(b.shareKK);
+    const shareTCReal = _tcToReal(b.shareTC);
+    const totalRealPerFixo = lootSomadoReal + svcShareReal + shareKKReal + shareTCReal;
+    return {
+      ...b,
+      lootSomadoReal, svcShareReal, shareKKReal, shareTCReal,
+      totalRealPerFixo,
+    };
+  });
+
+  // ── Rankings ──────────────────────────────────────────────────────
   const dropsComItem = allDrops.filter(d => d.item);
   const itemRank = aggregateCi(dropsComItem, d => d.item);
   const charRank = aggregateCi(dropsComItem, d => d.char);
   const dropadorRank = aggregateCi(dropsComItem, d => d.dropador);
 
-  let tAkk = 0, tAtc = 0, tAn = 0, uAkk = 0, uAtc = 0;
-  let tBkk = 0, tBtc = 0, tBn = 0, uBkk = 0, uBtc = 0;
-  let tCkk = 0, tCtc = 0, tCn = 0, uCkk = 0, uCtc = 0;
-  // Vendas que nao caem em nenhum time (chair sem questTeam e sem match
-  // em teamA/B/C). Hoje somem do calculo unitario — vamos avisar visualmente.
-  let unmatchedSales = 0, unmatchedKK = 0, unmatchedTC = 0;
+  // ── Globais agregados ─────────────────────────────────────────────
+  const grandTotalReal = byTeam.reduce((s, t) => s + t.totalRealPerFixo, 0);
 
-  soldData.forEach(d => {
-    const team = d.questTeam || (getTeam ? getTeam(d.char) : null);
-    const { kk, tc } = parseSold(d.soldPrice);
-    if (!team) {
-      unmatchedSales++;
-      unmatchedKK += kk;
-      unmatchedTC += tc;
-      return;
-    }
-    const div = BASE_DIVISOR;
-
-    if (team === 'A') { tAkk += kk; tAtc += tc; tAn++; uAkk += kk / div; uAtc += tc / div; }
-    else if (team === 'B') { tBkk += kk; tBtc += tc; tBn++; uBkk += kk / div; uBtc += tc / div; }
-    else if (team === 'C') { tCkk += kk; tCtc += tc; tCn++; uCkk += kk / div; uCtc += tc / div; }
-  });
-  const unmatchedRealVal = _kkToReal(unmatchedKK) + _tcToReal(unmatchedTC);
-
-  const totalUnitKK = uAkk + uBkk + uCkk;
-  const totalUnitTC = uAtc + uBtc + uCtc;
-  const unitARealVal = _kkToReal(uAkk) + _tcToReal(uAtc);
-  const unitBRealVal = _kkToReal(uBkk) + _tcToReal(uBtc);
-  const unitCRealVal = _kkToReal(uCkk) + _tcToReal(uCtc);
-  const totalUnitReal = unitARealVal + unitBRealVal + unitCRealVal;
-
-  const lootQuestARealVal = _kkToReal(lootQuestA);
-  const lootQuestBRealVal = _kkToReal(lootQuestB);
-  const lootQuestCRealVal = _kkToReal(lootQuestC);
-  const svcQuestARealVal = _tcToReal(svcQuestA);
-  const svcQuestBRealVal = _tcToReal(svcQuestB);
-  const svcQuestCRealVal = _tcToReal(svcQuestC);
-
-  const svcQuestAShareTC = svcQuestA / SVC_DIV;
-  const svcQuestBShareTC = svcQuestB / SVC_DIV;
-  const svcQuestCShareTC = svcQuestC / SVC_DIV;
-  const svcQuestAShareReal = _tcToReal(svcQuestAShareTC);
-  const svcQuestBShareReal = _tcToReal(svcQuestBShareTC);
-  const svcQuestCShareReal = _tcToReal(svcQuestCShareTC);
-
-  const totalSvcAll = svcQuestA + svcQuestB + svcQuestC;
-  const grandTotalReal = totalUnitReal
-    + lootQuestARealVal + lootQuestBRealVal + lootQuestCRealVal
-    + svcQuestAShareReal + svcQuestBShareReal + svcQuestCShareReal;
-
-  const totalDropsItems = allDrops.filter(d => d.item).length;
+  // ── Retrocompat: campos antigos tA/tB/tC/uA/uB/uC etc derivados ──
+  const tA = byTeamMap['A'];
+  const tB = byTeamMap['B'];
+  const tC = byTeamMap['C'];
+  const z = { soldKK: 0, soldTC: 0, nSold: 0, shareKK: 0, shareTC: 0,
+              lootSomado: 0, svcSomado: 0, svcShareTC: 0 };
+  const xA = tA || z, xB = tB || z, xC = tC || z;
 
   return {
-    totalLoot, totalSvcTC, soldKK, soldTC, itemRank, charRank, dropadorRank,
-    totalQuests: questData.length, totalDrops: totalDropsItems, totalSold: soldData.length, totalTempo,
-    tAkk, tAtc, tAn, uAkk, uAtc, tBkk, tBtc, tBn, uBkk, uBtc, tCkk, tCtc, tCn, uCkk, uCtc,
-    totalUnitKK, totalUnitTC, totalUnitReal, unitARealVal, unitBRealVal, unitCRealVal,
-    lootQuestA, lootQuestB, lootQuestC, svcQuestA, svcQuestB, svcQuestC,
-    lootQuestARealVal, lootQuestBRealVal, lootQuestCRealVal,
-    svcQuestARealVal, svcQuestBRealVal, svcQuestCRealVal,
-    svcQuestAShareTC, svcQuestBShareTC, svcQuestCShareTC,
-    svcQuestAShareReal, svcQuestBShareReal, svcQuestCShareReal,
-    totalSvcAll, grandTotalReal,
+    // ── Globais ──
+    totalLoot, totalSvcTC, soldKK, soldTC,
+    totalQuests: questData.length,
+    totalDrops: dropsComItem.length,
+    totalSold: allDrops.filter(d => d.soldPrice).length,
+    totalTempo,
+    itemRank, charRank, dropadorRank,
     unmatchedSales, unmatchedKK, unmatchedTC, unmatchedRealVal,
+
+    // ── Novo: arrays dinamicos ──
+    byTeam,
+    byFixo: Object.values(byFixoMap),
+
+    // ── Retrocompat campos antigos (zero quando time nao existe) ──
+    tAkk: xA.soldKK, tAtc: xA.soldTC, tAn: xA.nSold,
+    uAkk: xA.shareKK, uAtc: xA.shareTC,
+    tBkk: xB.soldKK, tBtc: xB.soldTC, tBn: xB.nSold,
+    uBkk: xB.shareKK, uBtc: xB.shareTC,
+    tCkk: xC.soldKK, tCtc: xC.soldTC, tCn: xC.nSold,
+    uCkk: xC.shareKK, uCtc: xC.shareTC,
+    lootQuestA: xA.lootSomado, lootQuestB: xB.lootSomado, lootQuestC: xC.lootSomado,
+    svcQuestA: xA.svcSomado,   svcQuestB: xB.svcSomado,   svcQuestC: xC.svcSomado,
+    lootQuestARealVal: _kkToReal(xA.lootSomado),
+    lootQuestBRealVal: _kkToReal(xB.lootSomado),
+    lootQuestCRealVal: _kkToReal(xC.lootSomado),
+    svcQuestARealVal: _tcToReal(xA.svcSomado),
+    svcQuestBRealVal: _tcToReal(xB.svcSomado),
+    svcQuestCRealVal: _tcToReal(xC.svcSomado),
+    svcQuestAShareTC: xA.svcShareTC,
+    svcQuestBShareTC: xB.svcShareTC,
+    svcQuestCShareTC: xC.svcShareTC,
+    svcQuestAShareReal: _tcToReal(xA.svcShareTC),
+    svcQuestBShareReal: _tcToReal(xB.svcShareTC),
+    svcQuestCShareReal: _tcToReal(xC.svcShareTC),
+    unitARealVal: _kkToReal(xA.shareKK) + _tcToReal(xA.shareTC),
+    unitBRealVal: _kkToReal(xB.shareKK) + _tcToReal(xB.shareTC),
+    unitCRealVal: _kkToReal(xC.shareKK) + _tcToReal(xC.shareTC),
+    totalUnitKK: xA.shareKK + xB.shareKK + xC.shareKK,
+    totalUnitTC: xA.shareTC + xB.shareTC + xC.shareTC,
+    totalUnitReal: byTeam.reduce((s, t) => s + t.shareKKReal + t.shareTCReal, 0),
+    totalSvcAll: xA.svcSomado + xB.svcSomado + xC.svcSomado,
+    grandTotalReal,
   };
 }

@@ -487,8 +487,8 @@ export default function App(){
   },[teamA,teamB,teamC]);
 
   const analytics=useMemo(
-    ()=>computeAnalytics({quests:sortedQuests,aMonth,tcKK,tcReal,tcQty,getTeam}),
-    [sortedQuests,aMonth,getTeam,tcKK,tcReal,tcQty]
+    ()=>computeAnalytics({quests:sortedQuests,aMonth,tcKK,tcReal,tcQty,teams,getTeam}),
+    [sortedQuests,aMonth,getTeam,tcKK,tcReal,tcQty,teams]
   );
 
   const doLogin = async () => {
@@ -1002,79 +1002,51 @@ export default function App(){
             <StatCard label="Tempo Total" value={fmtMin(analytics.totalTempo)} sub={`${analytics.totalTempo}min`} color="#fd79a8"/>
           </div>
 
-          <h2 style={{...S.h2,marginTop:8}}>💰 Valor Unitário por Fixo</h2>
-          <div style={{fontSize:11,color:"#484f58",marginBottom:12}}>Base ÷{BASE_DIVISOR} (suplentes substituem fixos, divisor fixo). Cotação: 1tc = {cfg.tcPriceKK}k | R${cfg.tcPriceReal}/{cfg.tcQty}tc</div>
+          <h2 style={{...S.h2,marginTop:8}}>💰 Valor por Fixo (por time)</h2>
+          <div style={{fontSize:11,color:"#484f58",marginBottom:12}}>Drops dividem por num_presentes (+1 por dono ausente com boneco pilotado). Service / num_fixos do time. Loot já é por fixo. Cotação: 1tc = {cfg.tcPriceKK}k | R${cfg.tcPriceReal}/{cfg.tcQty}tc</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:24}}>
-            <div style={{background:"#161b22",border:"1px solid #1f6feb",borderRadius:10,padding:16,flex:"1 1 300px"}}>
-              <div style={{fontSize:13,fontWeight:600,color:"#58a6ff",marginBottom:10}}>🅰️ Time A — {analytics.tAn} venda(s)</div>
-              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Total KK</div><div style={S.miniVal}>{analytics.tAkk.toFixed(1)}kk</div></div>
-                <div><div style={S.miniLbl}>Total TC</div><div style={{...S.miniVal,color:"#a29bfe"}}>{analytics.tAtc.toFixed(0)}tc</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}>
-                  <div style={S.miniLbl}>Unit. KK</div><div style={{fontSize:18,fontWeight:700,color:"#2ecc40"}}>{analytics.uAkk.toFixed(1)}kk</div>
+            {analytics.byTeam.map(t=>{
+              const team=findTeam(teams,t.id);
+              const fixosLbl=team?(team.fixos||[]).join(", "):'';
+              return <div key={t.id} style={{background:"#161b22",border:`1px solid ${t.color}`,borderRadius:10,padding:16,flex:"1 1 300px"}}>
+                <div style={{fontSize:13,fontWeight:600,color:t.color,marginBottom:10}}>
+                  {t.name} — {t.nQuests} quest(s) · {t.nSold} venda(s)
                 </div>
-                <div><div style={S.miniLbl}>Unit. TC</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.uAtc.toFixed(1)}tc</div></div>
-                <div><div style={S.miniLbl}>Unit. R$</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${analytics.unitARealVal.toFixed(2)}</div></div>
-              </div>
-              <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestA.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestARealVal.toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestA.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestARealVal.toFixed(2)}</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time A (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitARealVal+analytics.lootQuestARealVal+analytics.svcQuestAShareReal).toFixed(2)}</div></div>
-              </div>
-              <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamA.join(", ")}</div>
-            </div>
-            <div style={{background:"#161b22",border:"1px solid #da3633",borderRadius:10,padding:16,flex:"1 1 300px"}}>
-              <div style={{fontSize:13,fontWeight:600,color:"#da3633",marginBottom:10}}>🅱️ Time B — {analytics.tBn} venda(s)</div>
-              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Total KK</div><div style={S.miniVal}>{analytics.tBkk.toFixed(1)}kk</div></div>
-                <div><div style={S.miniLbl}>Total TC</div><div style={{...S.miniVal,color:"#a29bfe"}}>{analytics.tBtc.toFixed(0)}tc</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}>
-                  <div style={S.miniLbl}>Unit. KK</div><div style={{fontSize:18,fontWeight:700,color:"#2ecc40"}}>{analytics.uBkk.toFixed(1)}kk</div>
+                <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                  <div><div style={S.miniLbl}>Vendas KK</div><div style={S.miniVal}>{t.soldKK.toFixed(1)}kk</div></div>
+                  <div><div style={S.miniLbl}>Vendas TC</div><div style={{...S.miniVal,color:"#a29bfe"}}>{t.soldTC.toFixed(0)}tc</div></div>
+                  <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}>
+                    <div style={S.miniLbl}>Share KK</div>
+                    <div style={{fontSize:18,fontWeight:700,color:"#2ecc40"}}>{t.shareKK.toFixed(2)}kk</div>
+                  </div>
+                  <div><div style={S.miniLbl}>Share TC</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{t.shareTC.toFixed(1)}tc</div></div>
+                  <div><div style={S.miniLbl}>Share R$</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(t.shareKKReal+t.shareTCReal).toFixed(2)}</div></div>
                 </div>
-                <div><div style={S.miniLbl}>Unit. TC</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.uBtc.toFixed(1)}tc</div></div>
-                <div><div style={S.miniLbl}>Unit. R$</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${analytics.unitBRealVal.toFixed(2)}</div></div>
-              </div>
-              <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestB.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestBRealVal.toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestB.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestBRealVal.toFixed(2)}</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time B (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitBRealVal+analytics.lootQuestBRealVal+analytics.svcQuestBShareReal).toFixed(2)}</div></div>
-              </div>
-              <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamB.join(", ")}</div>
-            </div>
-            {teamC.length>0&&<div style={{background:"#161b22",border:"1px solid #d29922",borderRadius:10,padding:16,flex:"1 1 300px"}}>
-              <div style={{fontSize:13,fontWeight:600,color:"#d29922",marginBottom:10}}>🅲 Time C — {analytics.tCn} venda(s)</div>
-              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Total KK</div><div style={S.miniVal}>{analytics.tCkk.toFixed(1)}kk</div></div>
-                <div><div style={S.miniLbl}>Total TC</div><div style={{...S.miniVal,color:"#a29bfe"}}>{analytics.tCtc.toFixed(0)}tc</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}>
-                  <div style={S.miniLbl}>Unit. KK</div><div style={{fontSize:18,fontWeight:700,color:"#2ecc40"}}>{analytics.uCkk.toFixed(1)}kk</div>
+                <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
+                  <div><div style={S.miniLbl}>Loot recebido</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{t.lootSomado.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${t.lootSomadoReal.toFixed(2)}</div></div>
+                  <div><div style={S.miniLbl}>Service share</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{t.svcShareTC.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${t.svcShareReal.toFixed(2)}</div></div>
+                  <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}>
+                    <div style={S.miniLbl}>Total {t.name} (R$)</div>
+                    <div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${t.totalRealPerFixo.toFixed(2)}</div>
+                  </div>
                 </div>
-                <div><div style={S.miniLbl}>Unit. TC</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.uCtc.toFixed(1)}tc</div></div>
-                <div><div style={S.miniLbl}>Unit. R$</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${analytics.unitCRealVal.toFixed(2)}</div></div>
-              </div>
-              <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:14,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Loot da Quest</div><div style={{fontSize:16,fontWeight:700,color:"#feca57"}}>{analytics.lootQuestC.toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.lootQuestCRealVal.toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Quest</div><div style={{fontSize:16,fontWeight:700,color:"#48dbfb"}}>{analytics.svcQuestC.toFixed(0)}tc</div><div style={{fontSize:11,color:"#484f58"}}>R${analytics.svcQuestCRealVal.toFixed(2)}</div></div>
-                <div style={{borderLeft:"1px solid #30363d",paddingLeft:12}}><div style={S.miniLbl}>Total Time C (R$)</div><div style={{fontSize:18,fontWeight:700,color:"#00b894"}}>R${(analytics.unitCRealVal+analytics.lootQuestCRealVal+analytics.svcQuestCShareReal).toFixed(2)}</div></div>
-              </div>
-              <div style={{fontSize:11,color:"#484f58",marginTop:6}}>{teamC.join(", ")}</div>
-            </div>}
+                {fixosLbl&&<div style={{fontSize:11,color:"#484f58",marginTop:6}}>{fixosLbl}</div>}
+              </div>;
+            })}
             <div style={{background:"#161b22",border:"2px solid #2ecc40",borderRadius:10,padding:16,flex:"1 1 220px"}}>
-              <div style={{fontSize:13,fontWeight:600,color:"#2ecc40",marginBottom:10}}>🏆 Total por Fixo</div>
+              <div style={{fontSize:13,fontWeight:600,color:"#2ecc40",marginBottom:10}}>🏆 Soma de todos os times</div>
               <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>KK</div><div style={{fontSize:24,fontWeight:700,color:"#2ecc40"}}>{analytics.totalUnitKK.toFixed(1)}kk</div></div>
-                <div><div style={S.miniLbl}>TC</div><div style={{fontSize:24,fontWeight:700,color:"#48dbfb"}}>{analytics.totalUnitTC.toFixed(1)}tc</div></div>
-                <div><div style={S.miniLbl}>R$ (vendas)</div><div style={{fontSize:24,fontWeight:700,color:"#00b894"}}>R${analytics.totalUnitReal.toFixed(2)}</div></div>
+                <div><div style={S.miniLbl}>KK</div><div style={{fontSize:22,fontWeight:700,color:"#2ecc40"}}>{analytics.byTeam.reduce((s,t)=>s+t.shareKK,0).toFixed(1)}kk</div></div>
+                <div><div style={S.miniLbl}>TC</div><div style={{fontSize:22,fontWeight:700,color:"#48dbfb"}}>{analytics.byTeam.reduce((s,t)=>s+t.shareTC,0).toFixed(1)}tc</div></div>
               </div>
               <div style={{borderTop:"1px solid #30363d",marginTop:12,paddingTop:10,display:"flex",gap:20,flexWrap:"wrap"}}>
-                <div><div style={S.miniLbl}>Loot Quest Total</div><div style={{fontSize:18,fontWeight:700,color:"#feca57"}}>{(analytics.lootQuestA+analytics.lootQuestB+analytics.lootQuestC).toFixed(1)}kk</div><div style={{fontSize:11,color:"#484f58"}}>R${(analytics.lootQuestARealVal+analytics.lootQuestBRealVal+analytics.lootQuestCRealVal).toFixed(2)}</div></div>
-                <div><div style={S.miniLbl}>Service Total</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.totalSvcAll.toFixed(0)}tc</div></div>
+                <div><div style={S.miniLbl}>Loot Total</div><div style={{fontSize:18,fontWeight:700,color:"#feca57"}}>{analytics.byTeam.reduce((s,t)=>s+t.lootSomado,0).toFixed(1)}kk</div></div>
+                <div><div style={S.miniLbl}>Service Total</div><div style={{fontSize:18,fontWeight:700,color:"#48dbfb"}}>{analytics.byTeam.reduce((s,t)=>s+t.svcSomado,0).toFixed(0)}tc</div></div>
               </div>
               <div style={{borderTop:"2px solid #2ecc40",marginTop:12,paddingTop:10}}>
-                <div style={S.miniLbl}>🏆 Total Geral por Fixo (R$)</div>
+                <div style={S.miniLbl}>🏆 Total Geral (R$ — soma das partes)</div>
                 <div style={{fontSize:26,fontWeight:800,color:"#00b894"}}>R${analytics.grandTotalReal.toFixed(2)}</div>
               </div>
-              <div style={{fontSize:11,color:"#484f58",marginTop:6}}>A+B{teamC.length>0?"+C":""} (KK→TC→R$)</div>
             </div>
           </div>
 

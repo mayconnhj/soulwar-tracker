@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseDate, fromIso, fmtMin, parseSold, saleHint, aggregateCi,
-  computeAnalytics, BASE_DIVISOR, isValidSalePrice,
+  computeAnalytics, BASE_DIVISOR, isValidSalePrice, questDistribution,
 } from './analytics.js';
 
 describe('parseDate', () => {
@@ -223,5 +223,154 @@ describe('computeAnalytics', () => {
     const a = computeAnalytics({ quests: withGhost, aMonth: '', tcKK, tcReal, tcQty });
     expect(a.charRank.find(r => r.name === 'Bertolasz')).toBeUndefined();
     expect(a.charRank.find(r => r.name === 'Maycon').count).toBe(1);
+  });
+});
+
+describe('questDistribution', () => {
+  const fixosA = ['Maycon', 'Jorge', 'Du', 'Jão', 'Mario'];
+
+  it('quest legacy (sem dados de presença) retorna BASE_DIVISOR=7 nos drops', () => {
+    const q = { team: 'A', loot: '5.8', servicePrice: '1250' };
+    const d = questDistribution(q, fixosA);
+    expect(d.isLegacy).toBe(true);
+    expect(d.divisorDrops).toBe(BASE_DIVISOR);
+    expect(d.recipientesLootSvc).toEqual(fixosA);
+  });
+
+  it('quest com 1 ausente sem suplente: divisor de drops = 4 presentes', () => {
+    const q = {
+      team: 'A',
+      ausentes: ['Maycon'],
+      suplentes: [],
+      bonecosPilotados: [],
+    };
+    const d = questDistribution(q, fixosA);
+    expect(d.isLegacy).toBe(false);
+    expect(d.recipientesLootSvc).toEqual(['Jorge', 'Du', 'Jão', 'Mario']);
+    expect(d.divisorDrops).toBe(4); // 4 presentes
+  });
+
+  it('quest com 1 ausente coberto por suplente: divisor = 5', () => {
+    const q = {
+      team: 'A',
+      ausentes: ['Maycon'],
+      suplentes: [{ nome: 'Suplente1', lugarDe: 'Maycon' }],
+    };
+    const d = questDistribution(q, fixosA);
+    expect(d.recipientesLootSvc).toContain('Suplente1');
+    expect(d.recipientesLootSvc).not.toContain('Maycon');
+    expect(d.divisorDrops).toBe(5); // 4 fixos + 1 suplente
+  });
+
+  it('caso especial divisor 8: fixo ausente mas boneco pilotado por outro', () => {
+    const q = {
+      team: 'A',
+      ausentes: ['Maycon'],
+      suplentes: [
+        { nome: 'Suplente1', lugarDe: 'Maycon' },  // substitui Maycon
+        { nome: 'Suplente2', lugarDe: '' },        // vaga extra
+        { nome: 'Suplente3', lugarDe: '' },        // vaga extra
+      ],
+      bonecosPilotados: [
+        { char: 'Conopcas', dono: 'Maycon', piloto: 'Suplente1' }, // dono ausente, piloto outro
+      ],
+    };
+    const d = questDistribution(q, fixosA);
+    // recipientesLootSvc = 4 fixos presentes + 1 suplente substituto = 5
+    expect(d.recipientesLootSvc.length).toBe(5);
+    // recipientesDrops = 5 + 2 suplentes extras + 1 dono ausente com boneco = 8
+    expect(d.divisorDrops).toBe(8);
+    expect(d.recipientesDrops).toContain('Maycon'); // recebe drop mesmo ausente
+  });
+
+  it('Maycon ausente recebe DROP mas NÃO recebe loot/service', () => {
+    const q = {
+      team: 'A',
+      ausentes: ['Maycon'],
+      bonecosPilotados: [
+        { char: 'Conopcas', dono: 'Maycon', piloto: 'Du' },
+      ],
+    };
+    const d = questDistribution(q, fixosA);
+    expect(d.recipientesLootSvc).not.toContain('Maycon');
+    expect(d.recipientesDrops).toContain('Maycon');
+  });
+
+  it('boneco pilotado pelo proprio dono (presente) NÃO ativa divisor extra', () => {
+    const q = {
+      team: 'A',
+      ausentes: [],
+      bonecosPilotados: [
+        { char: 'Conopcas', dono: 'Maycon', piloto: 'Maycon' }, // dono = piloto
+      ],
+    };
+    const d = questDistribution(q, fixosA);
+    expect(d.ausentesComBonecoPilotado.length).toBe(0);
+  });
+});
+
+describe('computeAnalytics com presença/ausência', () => {
+  const teams = [
+    { id: 'A', name: 'Time A', color: '#58a6ff',
+      fixos: ['Maycon', 'Jorge', 'Du', 'Jão', 'Mario'],
+      bonecos: [{ char: 'Conopcas', dono: 'Maycon' }] },
+  ];
+  const tcKK = 39, tcReal = 53, tcQty = 250;
+
+  it('Maycon ausente: NÃO aparece como presente em loot e service', () => {
+    const quests = [{
+      id: 'q1', dropDate: '07/05/2026', team: 'A',
+      loot: '5.8', servicePrice: '1250',
+      ausentes: ['Maycon'],
+      suplentes: [],
+      bonecosPilotados: [],
+    }];
+    const a = computeAnalytics({ quests, aMonth: '', tcKK, tcReal, tcQty, teams });
+    const maycon = a.byFixo.find(f => f.nome === 'Maycon');
+    const jorge = a.byFixo.find(f => f.nome === 'Jorge');
+    expect(maycon.lootKK).toBe(0); // não recebeu
+    expect(jorge.lootKK).toBe(5.8); // recebeu
+    expect(maycon.questsAusente).toBe(1);
+    expect(jorge.questsPresente).toBe(1);
+  });
+
+  it('drop com divisor 8: cada share = soldKK/8, 8 recipientes', () => {
+    const quests = [{
+      id: 'q1', dropDate: '07/05/2026', team: 'A',
+      ausentes: ['Maycon'],
+      suplentes: [
+        { nome: 'S1', lugarDe: 'Maycon' },
+        { nome: 'S2', lugarDe: '' },
+        { nome: 'S3', lugarDe: '' },
+      ],
+      bonecosPilotados: [
+        { char: 'Conopcas', dono: 'Maycon', piloto: 'S1' },
+      ],
+      drops: [{ id: 'd1', item: 'Soulcutter', char: 'X', soldPrice: '80kk' }],
+    }];
+    const a = computeAnalytics({ quests, aMonth: '', tcKK, tcReal, tcQty, teams });
+    const maycon = a.byFixo.find(f => f.nome === 'Maycon');
+    const jorge = a.byFixo.find(f => f.nome === 'Jorge');
+    const s2 = a.byFixo.find(f => f.nome === 'S2');
+    expect(maycon.dropKK).toBeCloseTo(80 / 8, 5); // recebe share mesmo ausente
+    expect(jorge.dropKK).toBeCloseTo(80 / 8, 5);
+    expect(s2.dropKK).toBeCloseTo(80 / 8, 5);
+    // Maycon não recebe loot/service mas recebe drop
+    expect(maycon.lootKK).toBe(0);
+    expect(maycon.svcTC).toBe(0);
+  });
+
+  it('quest legacy (sem dados): mantem comportamento de divisor=7', () => {
+    const quests = [{
+      id: 'q1', dropDate: '07/05/2026', team: 'A',
+      loot: '5', servicePrice: '500',
+      drops: [{ id: 'd1', item: 'Soulcutter', char: 'Maycon', soldPrice: '70kk' }],
+    }];
+    const a = computeAnalytics({ quests, aMonth: '', tcKK, tcReal, tcQty, teams });
+    // shareKK por fixo = 70/7 = 10
+    expect(a.byTeam[0].shareKK).toBeCloseTo(70 / 7, 5);
+    // Loot por fixo = 5 pra cada um dos 5 fixos
+    expect(a.byFixo.find(f => f.nome === 'Maycon').lootKK).toBe(5);
+    expect(a.byFixo.length).toBe(5); // 5 fixos
   });
 });
