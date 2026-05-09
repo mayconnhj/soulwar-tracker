@@ -153,7 +153,7 @@ export default function App(){
   const [fChar,setFChar]=useState("");
   const [fDate,setFDate]=useState("");
   const [aMonth,setAMonth]=useState("");
-  const ef={pagante:"",suplentes:[],loot:"",servicePrice:"",tempo:"",dropDate:"",team:"",drops:[]};
+  const ef={pagante:"",suplentes:[],loot:"",servicePrice:"",tempo:"",dropDate:"",team:"",drops:[],ausentes:[],bonecosPilotados:[]};
   const emptyDrop={item:"",boss:"",char:"",dropador:""};
   const [nf,setNf]=useState(ef);
   const [dropBuf,setDropBuf]=useState(emptyDrop);
@@ -328,6 +328,11 @@ export default function App(){
       loot: nf.loot || "",
       servicePrice: nf.servicePrice || "",
       tempo: nf.tempo || "",
+      ausentes: nf.ausentes || [],
+      // bonecosPilotados sao linhas com algum campo preenchido
+      bonecosPilotados: (nf.bonecosPilotados || [])
+        .filter(b => b.char || b.dono || b.piloto)
+        .map(b => ({ char: b.char || "", dono: b.dono || "", piloto: b.piloto || "" })),
       drops: dropList.map(d => ({
         id: d.id, // pode ser undefined (drop novo) ou string (drop existente)
         item: d.item || "",
@@ -361,6 +366,8 @@ export default function App(){
       tempo: q.tempo || "",
       dropDate: isoDate,
       team: q.team || "",
+      ausentes: q.ausentes || [],
+      bonecosPilotados: q.bonecosPilotados || [],
       drops: (q.drops || []).map(d => ({
         id: d.id,
         item: d.item || "",
@@ -705,7 +712,21 @@ export default function App(){
             {editQuestId&&<div style={{background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",borderRadius:8,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#58a6ff",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>✏️ Editando registro — altere os campos e clique em "Salvar Edição"</span><button onClick={cancelEdit} style={{background:"transparent",border:"1px solid #58a6ff",color:"#58a6ff",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:12}}>Cancelar</button></div>}
             <div style={S.form}>
               <label style={S.lbl}>Pagante<input value={nf.pagante} onChange={e=>setNf({...nf,pagante:e.target.value})} style={S.inp}/></label>
-              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>setNf({...nf,team:e.target.value})} style={S.sel}>
+              <label style={S.lbl}>Time<select value={nf.team} onChange={e=>{
+                const newId=e.target.value;
+                if(newId===nf.team)return;
+                const t=findTeam(teams,newId);
+                // Ao trocar de time: reseta presenca (todos presentes) e
+                // pre-popula bonecosPilotados com os bonecos do time
+                // (piloto inicia igual ao dono — usuario ajusta se for
+                // emprestante).
+                setNf(p=>({
+                  ...p,
+                  team:newId,
+                  ausentes:[],
+                  bonecosPilotados:t?(t.bonecos||[]).map(b=>({char:b.char||'',dono:b.dono||'',piloto:b.dono||''})):[],
+                }));
+              }} style={S.sel}>
                 <option value="">Selecione o Time...</option>
                 {teams.map(t=>{
                   const charsLabel=(t.bonecos||[]).map(b=>b.char).filter(Boolean).join(", ")||(t.fixos||[]).join(", ");
@@ -721,12 +742,91 @@ export default function App(){
                   <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>Suplentes</span>
                   <button onClick={addSup} style={S.plusBtn}>+ Suplente</button>
                 </div>
-                {nf.suplentes.map((sup,i)=><div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-                  <input value={sup.nome} onChange={e=>upSup(i,"nome",e.target.value)} placeholder="Nome" style={{...S.inp,flex:1}}/>
-                  <select value={sup.lugarDe} onChange={e=>upSup(i,"lugarDe",e.target.value)} style={{...S.sel,flex:1}}><option value="">Lugar de quem?</option>{allFixos.map(f=><option key={f} value={f}>{f}</option>)}</select>
-                  <button onClick={()=>rmSup(i)} style={S.cxBtn}>✕</button>
-                </div>)}
+                {nf.suplentes.map((sup,i)=>{
+                  // Lugar de = fixo do time selecionado quando ha um team escolhido,
+                  // senao cai pra pool global (allFixos).
+                  const teamSel=findTeam(teams,nf.team);
+                  const opcoesLugarDe=teamSel?(teamSel.fixos||[]):allFixos;
+                  return <div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}>
+                    <input value={sup.nome} onChange={e=>upSup(i,"nome",e.target.value)} placeholder="Nome do suplente" style={{...S.inp,flex:"1 1 120px"}}/>
+                    <select value={sup.lugarDe||""} onChange={e=>upSup(i,"lugarDe",e.target.value)} style={{...S.sel,flex:"1 1 120px"}}>
+                      <option value="">Lugar de quem?</option>
+                      {opcoesLugarDe.map(f=><option key={f} value={f}>{f}</option>)}
+                    </select>
+                    <input value={sup.boneco||""} onChange={e=>upSup(i,"boneco",e.target.value)} placeholder="Boneco (opt)" style={{...S.inp,flex:"1 1 110px"}} list={`dl-bonecos-team-${nf.team}`}/>
+                    <button onClick={()=>rmSup(i)} style={S.cxBtn}>✕</button>
+                  </div>;
+                })}
+                <div style={{fontSize:11,color:"#484f58",marginTop:4}}>Suplentes substituem fixos faltantes ou ocupam vagas extras. Preencha "boneco" se o suplente pilotou um boneco específico.</div>
               </div>
+
+              {/* PRESENCA — checkbox por fixo do time selecionado */}
+              {(()=>{
+                const team=findTeam(teams,nf.team);
+                if(!team)return null;
+                const fixosTime=team.fixos||[];
+                if(fixosTime.length===0)return null;
+                const ausentesSet=new Set(nf.ausentes||[]);
+                const presentesCount=fixosTime.filter(f=>!ausentesSet.has(f)).length;
+                return <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
+                  <div style={{fontSize:13,color:"#8b949e",fontWeight:500,marginBottom:8}}>
+                    👥 Presença na quest <span style={{color:"#2ecc40",fontWeight:600}}>({presentesCount}/{fixosTime.length})</span>
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                    {fixosTime.map(f=>{
+                      const aus=ausentesSet.has(f);
+                      return <label key={f} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",background:aus?"rgba(218,54,51,.10)":"rgba(35,134,54,.10)",border:`1px solid ${aus?"#da3633":"#2ea043"}`,borderRadius:6,cursor:"pointer",fontSize:12}}>
+                        <input type="checkbox" checked={!aus} onChange={e=>{
+                          const wantAus=!e.target.checked;
+                          setNf(p=>{
+                            const a=new Set(p.ausentes||[]);
+                            if(wantAus)a.add(f);else a.delete(f);
+                            return {...p,ausentes:[...a]};
+                          });
+                        }} style={{margin:0}}/>
+                        <span style={{textDecoration:aus?"line-through":"none",color:aus?"#8b949e":"#e6edf3"}}>{f}</span>
+                      </label>;
+                    })}
+                  </div>
+                  <div style={{fontSize:11,color:"#484f58",marginTop:4}}>Marcado = presente (recebe loot/service). Desmarcar = faltou.</div>
+                </div>;
+              })()}
+
+              {/* BONECOS PILOTADOS — quem pilotou qual boneco na quest */}
+              {nf.team&&<div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>📦 Bonecos pilotados {(nf.bonecosPilotados||[]).length>0&&<span style={{color:"#58a6ff"}}>({(nf.bonecosPilotados||[]).length})</span>}</span>
+                  <button onClick={()=>setNf(p=>({...p,bonecosPilotados:[...(p.bonecosPilotados||[]),{char:'',dono:'',piloto:''}]}))} style={S.plusBtn}>+ Linha</button>
+                </div>
+                {(nf.bonecosPilotados||[]).map((b,i)=>{
+                  const isDonoAusente=b.dono&&(nf.ausentes||[]).includes(b.dono);
+                  const pilotoDifere=b.piloto&&b.dono&&b.piloto!==b.dono;
+                  const ativaDivisorExtra=isDonoAusente&&pilotoDifere;
+                  return <div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap",padding:ativaDivisorExtra?"6px 8px":"0",background:ativaDivisorExtra?"rgba(254,202,87,.08)":"transparent",borderRadius:ativaDivisorExtra?6:0,border:ativaDivisorExtra?"1px solid #feca57":"none"}}>
+                    <input value={b.char||""} onChange={e=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.map((x,j)=>j===i?{...x,char:e.target.value}:x)}))} placeholder="Boneco" list={`dl-bonecos-team-${nf.team}`} style={{...S.inp,flex:"1 1 130px",fontSize:12}}/>
+                    <input value={b.dono||""} onChange={e=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.map((x,j)=>j===i?{...x,dono:e.target.value}:x)}))} placeholder="Dono" list={`dl-fixos-team-${nf.team}`} style={{...S.inp,flex:"1 1 100px",fontSize:12}}/>
+                    <input value={b.piloto||""} onChange={e=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.map((x,j)=>j===i?{...x,piloto:e.target.value}:x)}))} placeholder="Piloto" list={`dl-pilotos-team-${nf.team}`} style={{...S.inp,flex:"1 1 100px",fontSize:12}}/>
+                    {ativaDivisorExtra&&<span title="Dono ausente + boneco pilotado por outro = +1 share nos drops" style={{fontSize:10,color:"#feca57",fontWeight:600}}>⚠️ +1 share</span>}
+                    <button onClick={()=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.filter((_,j)=>j!==i)}))} style={S.cxBtn}>✕</button>
+                  </div>;
+                })}
+                {/* datalists pra autocomplete dos campos acima */}
+                {(()=>{
+                  const team=findTeam(teams,nf.team);
+                  const bonecosT=(team?.bonecos||[]).map(b=>b.char).filter(Boolean);
+                  const fixosT=team?.fixos||[];
+                  const pilotosT=[...new Set([...fixosT,...((nf.suplentes||[]).map(s=>s.nome).filter(Boolean))])];
+                  return <>
+                    <datalist id={`dl-bonecos-team-${nf.team}`}>{bonecosT.map(c=><option key={c} value={c}/>)}</datalist>
+                    <datalist id={`dl-fixos-team-${nf.team}`}>{fixosT.map(f=><option key={f} value={f}/>)}</datalist>
+                    <datalist id={`dl-pilotos-team-${nf.team}`}>{pilotosT.map(p=><option key={p} value={p}/>)}</datalist>
+                  </>;
+                })()}
+                <div style={{fontSize:11,color:"#484f58",marginTop:4}}>
+                  Boneco com dono ausente + piloto diferente = ativa divisor +1 nos drops.
+                </div>
+              </div>}
+
               <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>Drops de Item {nf.drops.length>0&&<span style={{color:"#2ecc40"}}>({nf.drops.length})</span>}</span>
