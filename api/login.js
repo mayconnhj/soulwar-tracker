@@ -14,7 +14,7 @@ export default async function handler(req, res) {
 
   try {
     const ok = await checkPassword(req.body && req.body.password);
-    if (ok) res.json({ ok: true, token: createToken() });
+    if (ok) res.json({ ok: true, token: await createToken() });
     else res.status(401).json({ error: 'Senha incorreta' });
   } catch (err) {
     sendApiError(res, err, 'API /login');

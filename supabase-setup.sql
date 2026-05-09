@@ -84,6 +84,8 @@ CREATE TABLE IF NOT EXISTS config (
   removed_items JSONB DEFAULT '[]'::jsonb
 );
 ALTER TABLE config ADD COLUMN IF NOT EXISTS team_c JSONB DEFAULT '[]'::jsonb;
+-- auth_version invalida tokens antigos quando a senha admin e trocada.
+ALTER TABLE config ADD COLUMN IF NOT EXISTS auth_version INT DEFAULT 0;
 
 INSERT INTO config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 

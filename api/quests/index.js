@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') return res.json(await getQuests());
 
     if (req.method === 'POST') {
-      if (!requireAuth(req, res)) return;
+      if (!await requireAuth(req, res)) return;
       return res.json(await addQuest(req.body));
     }
 

@@ -12,7 +12,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') return res.json(await getConfig());
 
     if (req.method === 'PUT') {
-      if (!requireAuth(req, res)) return;
+      if (!await requireAuth(req, res)) return;
       return res.json(await saveConfig(req.body));
     }
 

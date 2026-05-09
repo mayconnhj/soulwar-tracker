@@ -22,6 +22,7 @@ const api = {
   async saveConfig(data) { const r = await fetch(`${API}/config`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify(data) }); if (r.status === 401) throw new Error('Sessao expirada'); return r.json(); },
   async login(password) { const r = await fetch(`${API}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); return r; },
   async changePassword(currentPassword, newPassword) { const r = await fetch(`${API}/change-password`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ currentPassword, newPassword }) }); return r; },
+  async me() { const r = await fetch(`${API}/me`, { headers: authHeaders() }); return r.ok; },
 };
 
 // All items that can come from Bag You Desire + Sanguine Set + Promotion Scroll
@@ -163,6 +164,16 @@ export default function App(){
     } catch (e) {
       console.error('Error loading data:', e);
       showToast('Falha ao carregar dados. Verifique sua conexão.','error');
+    }
+    // Restaura isAdmin se ja existe um token valido (sobrevive ao reload).
+    if (sessionStorage.getItem('admin_token')) {
+      try {
+        const ok = await api.me();
+        if (ok) setIsAdmin(true);
+        else sessionStorage.removeItem('admin_token');
+      } catch {
+        sessionStorage.removeItem('admin_token');
+      }
     }
     setLoading(false);
   }, [showToast]);
