@@ -265,15 +265,41 @@ describe('questDistribution', () => {
     expect(d.vagasAnonimasCount).toBe(2);
   });
 
-  it('Time A + 1 suplente cobrindo + caso +1 (boneco do ausente): divisor = 8', () => {
+  it('Time A + suplente cobrindo Maycon pilotando Conopcas (boneco DELE): divisor = 8', () => {
+    const team = {
+      fixos: fixosA,
+      bonecos: [{ char: 'Conopcas', dono: 'Maycon' }],
+    };
     const q = {
       team: 'A',
       suplentes: [{ nome: 'S1', lugarDe: 'Maycon', boneco: 'Conopcas' }],
     };
-    const d = questDistribution(q, fixosA);
-    // 4 fixos + S1 + Maycon (share extra) + 2 vagas anonimas = 8
+    const d = questDistribution(q, team);
     expect(d.divisorDrops).toBe(8);
     expect(d.recipientesDrops).toContain('Maycon');
+    expect(d.ausentesComBonecoPilotado).toContain('Maycon');
+  });
+
+  it('Time A + suplente cobrindo Verfix pilotando boneco EMPRESTADO: NÃO ativa +1', () => {
+    // Cenário real: Verfix joga de Brauba Junior na quest, mas Brauba não é
+    // dele (é emprestado). Verfix falta, Tales cobre pilotando Brauba.
+    // Como Brauba não é boneco do Verfix, ele NÃO recebe drop. Suplente
+    // assume vaga normalmente.
+    const team = {
+      fixos: ['Maycon', 'Jorge', 'Du', 'Jão', 'Verfix'],
+      bonecos: [
+        { char: 'Conopcas', dono: 'Maycon' },
+        // Brauba Junior NÃO está cadastrado como dono Verfix → emprestado
+      ],
+    };
+    const q = {
+      team: 'A',
+      suplentes: [{ nome: 'Tales', lugarDe: 'Verfix', boneco: 'Brauba Junior' }],
+    };
+    const d = questDistribution(q, team);
+    expect(d.ausentesComBonecoPilotado.length).toBe(0); // +1 NÃO ativa
+    expect(d.recipientesDrops).not.toContain('Verfix'); // Verfix NÃO recebe
+    expect(d.recipientesLootSvc).toContain('Tales'); // Tales recebe loot/svc normal
   });
 
   it('Time C com pesos: 3 fixos peso 1 + Raaro/Starcall peso 2 + 3 vagas extras = divisor 10', () => {

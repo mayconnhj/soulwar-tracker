@@ -813,11 +813,19 @@ export default function App(){
               {nf.team&&(()=>{
                 const team=findTeam(teams,nf.team);
                 const fixosTime=team?teamFixosObjs(team).map(f=>f.nome):[];
+                const teamBonecos=(team&&team.bonecos)||[];
+                const ehBonecoDoFixo=(boneco,fixo)=>{
+                  if(!boneco||!fixo)return false;
+                  const b=boneco.toLowerCase();const f=fixo.toLowerCase();
+                  return teamBonecos.some(tb=>tb.char&&tb.char.toLowerCase()===b&&tb.dono&&tb.dono.toLowerCase()===f);
+                };
                 const sups=(nf.suplentes||[]).filter(s=>s.nome);
                 const ausentes=[...new Set(sups.map(s=>s.lugarDe).filter(Boolean))];
                 const ausentesSetLower=new Set(ausentes.map(a=>a.toLowerCase()));
                 const presentesFixos=fixosTime.filter(f=>!ausentesSetLower.has(f.toLowerCase()));
-                const ausentesComBoneco=[...new Set(sups.filter(s=>s.lugarDe&&s.boneco).map(s=>s.lugarDe))];
+                const ausentesComBoneco=[...new Set(
+                  sups.filter(s=>s.lugarDe&&s.boneco&&ehBonecoDoFixo(s.boneco,s.lugarDe)).map(s=>s.lugarDe)
+                )];
                 const divisorDrops=(presentesFixos.length+sups.length)+ausentesComBoneco.length;
                 const divisorLootSvc=presentesFixos.length+sups.length;
                 return <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
@@ -844,15 +852,19 @@ export default function App(){
 
                   {/* Linhas de suplentes */}
                   {(nf.suplentes||[]).map((sup,i)=>{
-                    const ativaExtra=sup.lugarDe&&sup.boneco;
-                    return <div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap",padding:ativaExtra?"6px 8px":"4px 0",background:ativaExtra?"rgba(254,202,87,.08)":"transparent",borderRadius:ativaExtra?6:0,border:ativaExtra?"1px solid #feca57":"none"}}>
+                    const temBoneco=sup.lugarDe&&sup.boneco;
+                    const eDono=temBoneco&&ehBonecoDoFixo(sup.boneco,sup.lugarDe);
+                    const ativaExtra=eDono;  // só ativa +1 se boneco é do fixo coberto
+                    const emprestado=temBoneco&&!eDono;  // boneco emprestado: NÃO ativa +1
+                    return <div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap",padding:(ativaExtra||emprestado)?"6px 8px":"4px 0",background:ativaExtra?"rgba(254,202,87,.08)":emprestado?"rgba(88,166,255,.06)":"transparent",borderRadius:(ativaExtra||emprestado)?6:0,border:ativaExtra?"1px solid #feca57":emprestado?"1px solid #30363d":"none"}}>
                       <input value={sup.nome} onChange={e=>upSup(i,"nome",e.target.value)} placeholder="Nome do suplente *" style={{...S.inp,flex:"1 1 140px",fontSize:12}}/>
                       <select value={sup.lugarDe||""} onChange={e=>upSup(i,"lugarDe",e.target.value)} style={{...S.sel,flex:"1 1 130px",fontSize:12}}>
                         <option value="">Vaga extra (não cobre)</option>
                         {fixosTime.map(f=><option key={f} value={f}>cobrindo {f}</option>)}
                       </select>
                       <input value={sup.boneco||""} onChange={e=>upSup(i,"boneco",e.target.value)} placeholder="Boneco (opt)" list={`dl-bonecos-team-${nf.team}`} style={{...S.inp,flex:"1 1 110px",fontSize:12}}/>
-                      {ativaExtra&&<span title="Suplente cobrindo fixo + pilotando boneco dele = +1 share pra esse fixo nos drops" style={{fontSize:10,color:"#feca57",fontWeight:600,whiteSpace:"nowrap"}}>⚠️ +1 share</span>}
+                      {ativaExtra&&<span title="Boneco do fixo coberto pilotado por outro = +1 share pra ele nos drops" style={{fontSize:10,color:"#feca57",fontWeight:600,whiteSpace:"nowrap"}}>⚠️ +1 share pra {sup.lugarDe}</span>}
+                      {emprestado&&<span title="Boneco emprestado (não é do fixo coberto) — fixo NÃO recebe drop, suplente assume vaga normalmente" style={{fontSize:10,color:"#8b949e",fontWeight:600,whiteSpace:"nowrap"}}>boneco emprestado</span>}
                       <button onClick={()=>rmSup(i)} style={S.cxBtn}>✕</button>
                     </div>;
                   })}

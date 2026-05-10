@@ -195,8 +195,24 @@ export function questDistribution(q, team) {
   const presentesFixos = fixos.filter(f => !ausentesSetLower.has(f.toLowerCase()));
   const supsExtras = sups.filter(s => !s.lugarDe);
   const supsCovering = sups.filter(s => s.lugarDe);
+  // Caso especial +1 share: SO ativa quando o suplente pilotou o BONECO
+  // PROPRIO do fixo coberto. Se o boneco e emprestado (nao cadastrado em
+  // team.bonecos como sendo do lugarDe), o fixo coberto NAO recebe drop —
+  // o boneco proprio dele nao esta na quest.
+  const teamBonecos = (teamObj && teamObj.bonecos) || [];
+  const ehBonecoDoFixo = (bonecoNome, fixoNome) => {
+    if (!bonecoNome || !fixoNome) return false;
+    const b = String(bonecoNome).toLowerCase();
+    const f = String(fixoNome).toLowerCase();
+    return teamBonecos.some(tb =>
+      tb.char && tb.char.toLowerCase() === b &&
+      tb.dono && tb.dono.toLowerCase() === f
+    );
+  };
   const ausentesComBoneco = [...new Set(
-    sups.filter(s => s.lugarDe && s.boneco).map(s => s.lugarDe)
+    sups
+      .filter(s => s.lugarDe && s.boneco && ehBonecoDoFixo(s.boneco, s.lugarDe))
+      .map(s => s.lugarDe)
   )];
 
   // Pesos por recipiente em DROPS:
