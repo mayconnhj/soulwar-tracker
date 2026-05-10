@@ -262,25 +262,33 @@ describe('questDistribution', () => {
     expect(d.divisorDrops).toBe(5); // 4 fixos + 1 suplente
   });
 
-  it('caso especial divisor 8: fixo ausente mas boneco pilotado por outro', () => {
+  it('caso especial divisor 8: fixo ausente mas boneco pilotado por outro (modo NOVO)', () => {
+    // No modo NOVO, bonecosPilotados é fonte única — TODOS os pilotos
+    // da quest precisam aparecer aqui (4 fixos presentes + Suplente1
+    // pilotando Conopcas + 2 suplentes em vagas extras = 7 pilotos).
     const q = {
       team: 'A',
-      ausentes: ['Maycon'],
-      suplentes: [
-        { nome: 'Suplente1', lugarDe: 'Maycon' },  // substitui Maycon
-        { nome: 'Suplente2', lugarDe: '' },        // vaga extra
-        { nome: 'Suplente3', lugarDe: '' },        // vaga extra
-      ],
       bonecosPilotados: [
-        { char: 'Conopcas', dono: 'Maycon', piloto: 'Suplente1' }, // dono ausente, piloto outro
+        { char: 'Conopcas',     dono: 'Maycon', piloto: 'Suplente1' }, // boneco do ausente
+        { char: 'BonecoJorge',  dono: 'Jorge',  piloto: 'Jorge'     },
+        { char: 'BonecoDu',     dono: 'Du',     piloto: 'Du'        },
+        { char: 'BonecoJão',    dono: 'Jão',    piloto: 'Jão'       },
+        { char: 'BonecoMario',  dono: 'Mario',  piloto: 'Mario'     },
+        { char: 'Extra1',       dono: '',       piloto: 'Suplente2' },
+        { char: 'Extra2',       dono: '',       piloto: 'Suplente3' },
       ],
     };
     const d = questDistribution(q, fixosA);
-    // recipientesLootSvc = 4 fixos presentes + 1 suplente substituto = 5
-    expect(d.recipientesLootSvc.length).toBe(5);
-    // recipientesDrops = 5 + 2 suplentes extras + 1 dono ausente com boneco = 8
+    expect(d.mode).toBe('novo');
+    expect(d.ausentes).toEqual(['Maycon']);
+    // recipientesLootSvc = 7 pilotos (4 fixos + 3 suplentes)
+    expect(d.recipientesLootSvc.length).toBe(7);
+    // recipientesDrops = 7 + 1 dono ausente com boneco pilotado = 8
     expect(d.divisorDrops).toBe(8);
     expect(d.recipientesDrops).toContain('Maycon'); // recebe drop mesmo ausente
+    expect(d.pilotosNaoFixos).toContain('Suplente1');
+    expect(d.pilotosNaoFixos).toContain('Suplente2');
+    expect(d.pilotosNaoFixos).toContain('Suplente3');
   });
 
   it('Maycon ausente recebe DROP mas NÃO recebe loot/service', () => {
@@ -334,17 +342,17 @@ describe('computeAnalytics com presença/ausência', () => {
     expect(jorge.questsPresente).toBe(1);
   });
 
-  it('drop com divisor 8: cada share = soldKK/8, 8 recipientes', () => {
+  it('drop com divisor 8 (modo NOVO): cada share = soldKK/8, 8 recipientes', () => {
     const quests = [{
       id: 'q1', dropDate: '07/05/2026', team: 'A',
-      ausentes: ['Maycon'],
-      suplentes: [
-        { nome: 'S1', lugarDe: 'Maycon' },
-        { nome: 'S2', lugarDe: '' },
-        { nome: 'S3', lugarDe: '' },
-      ],
       bonecosPilotados: [
-        { char: 'Conopcas', dono: 'Maycon', piloto: 'S1' },
+        { char: 'Conopcas', dono: 'Maycon', piloto: 'S1' }, // Maycon ausente
+        { char: 'BJorge',   dono: 'Jorge',  piloto: 'Jorge' },
+        { char: 'BDu',      dono: 'Du',     piloto: 'Du' },
+        { char: 'BJão',     dono: 'Jão',    piloto: 'Jão' },
+        { char: 'BMario',   dono: 'Mario',  piloto: 'Mario' },
+        { char: 'Extra1',   dono: '',       piloto: 'S2' },
+        { char: 'Extra2',   dono: '',       piloto: 'S3' },
       ],
       drops: [{ id: 'd1', item: 'Soulcutter', char: 'X', soldPrice: '80kk' }],
     }];
@@ -358,6 +366,10 @@ describe('computeAnalytics com presença/ausência', () => {
     // Maycon não recebe loot/service mas recebe drop
     expect(maycon.lootKK).toBe(0);
     expect(maycon.svcTC).toBe(0);
+    // S2 (suplente) é marcado como tal
+    expect(s2.isSuplente).toBe(true);
+    // Jorge (fixo) NÃO é suplente
+    expect(jorge.isSuplente).toBe(false);
   });
 
   it('quest legacy (sem dados): mantem comportamento de divisor=7', () => {

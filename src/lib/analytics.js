@@ -74,67 +74,115 @@ export function aggregateCi(rows, getKey) {
 }
 
 /**
- * Distribui uma quest entre seus recipientes:
- *  - recipientesLootSvc: quem recebe loot e service (fixos presentes +
- *    suplentes que substituem fixos ausentes).
- *  - recipientesDrops: quem recebe share dos drops (recipientes loot/svc
- *    + suplentes em vagas extras + donos ausentes cujo boneco rolou).
- *  - divisorDrops: tamanho de recipientesDrops.
- *  - divisorService: numero de fixos do time (regra do user: service / 5
- *    sempre, mesmo com presenca menor).
+ * Distribui uma quest entre seus recipientes em 3 modos:
  *
- * Detecta quest LEGADA (sem dados de presenca) e usa fallback compativel
- * com o calculo antigo: BASE_DIVISOR=7 nos drops, todos os fixos do time
- * recebem loot/service.
+ * 1. LEGACY (sem nenhum dado de presença): assume todos os fixos do time
+ *    presentes, divisor de drops = BASE_DIVISOR (7).
+ *
+ * 2. NOVO (tem bonecosPilotados): bonecosPilotados é a fonte única de
+ *    verdade. Pilotos = quem foi (fixo presente ou emprestante). Ausentes
+ *    = fixos do time que NÃO aparecem como piloto. ausentesComBoneco =
+ *    fixos ausentes cujo boneco foi pilotado por outro (regra +1 share).
+ *
+ * 3. INTERMEDIÁRIO (tem suplentes/ausentes mas não bonecosPilotados):
+ *    formato da fase 2.5c. Mantido pra retrocompat.
+ *
+ * Retorno:
+ *  - recipientesLootSvc: quem recebe loot e service.
+ *  - recipientesDrops:   quem recebe share dos drops.
+ *  - divisorDrops, divisorService: divisores efetivos.
+ *  - ausentes:           fixos do time que faltaram nesta quest.
+ *  - ausentesComBonecoPilotado: fixos ausentes cujo boneco rolou.
+ *  - pilotosNaoFixos:    pilotos que não são fixos do time (emprestantes).
  */
 export function questDistribution(q, teamFixos) {
   const fixos = Array.isArray(teamFixos) ? teamFixos : [];
-  const ausentesSet = new Set(q.ausentes || []);
-  const sups = (q.suplentes || []).filter(s => s.nome);
+  const fixosLowerSet = new Set(fixos.map(f => String(f).toLowerCase()));
   const bonecosPil = q.bonecosPilotados || [];
+  const sups = (q.suplentes || []).filter(s => s.nome);
+  const ausentesQ = q.ausentes || [];
 
-  const isLegacy = ausentesSet.size === 0 && sups.length === 0 && bonecosPil.length === 0;
-
-  if (isLegacy) {
+  // ── MODO 1: LEGACY ────────────────────────────────────────────────
+  if (bonecosPil.length === 0 && sups.length === 0 && ausentesQ.length === 0) {
     return {
       isLegacy: true,
+      mode: 'legacy',
       recipientesLootSvc: [...fixos],
       recipientesDrops: [...fixos],
       divisorDrops: BASE_DIVISOR,
       divisorService: fixos.length || SVC_DIV_DEFAULT,
+      ausentes: [],
       ausentesComBonecoPilotado: [],
+      pilotosNaoFixos: [],
     };
   }
 
+  // ── MODO 2: NOVO (bonecosPilotados é a fonte única) ──────────────
+  if (bonecosPil.length > 0) {
+    const pilotos = [...new Set(
+      bonecosPil.map(b => b.piloto).filter(Boolean)
+    )];
+    const pilotosLowerSet = new Set(pilotos.map(p => p.toLowerCase()));
+
+    // Ausentes = fixos do time que NÃO aparecem como piloto.
+    const ausentes = fixos.filter(f => !pilotosLowerSet.has(f.toLowerCase()));
+    const ausentesLowerSet = new Set(ausentes.map(a => a.toLowerCase()));
+
+    // Donos ausentes cujo boneco foi pilotado por OUTRA pessoa.
+    const ausentesComBoneco = [...new Set(
+      bonecosPil
+        .filter(b => b.dono && ausentesLowerSet.has(b.dono.toLowerCase())
+                    && b.piloto && b.piloto.toLowerCase() !== b.dono.toLowerCase())
+        .map(b => b.dono)
+    )];
+
+    const recipientesLootSvc = pilotos;
+    const recipientesDrops = [...pilotos, ...ausentesComBoneco];
+
+    // Pilotos que não são fixos do time = emprestantes/suplentes.
+    const pilotosNaoFixos = pilotos.filter(p => !fixosLowerSet.has(p.toLowerCase()));
+
+    return {
+      isLegacy: false,
+      mode: 'novo',
+      recipientesLootSvc,
+      recipientesDrops,
+      divisorDrops: recipientesDrops.length,
+      divisorService: fixos.length || SVC_DIV_DEFAULT,
+      ausentes,
+      ausentesComBonecoPilotado: ausentesComBoneco,
+      pilotosNaoFixos,
+    };
+  }
+
+  // ── MODO 3: INTERMEDIÁRIO (formato 2.5c — suplentes + ausentes) ──
+  const ausentesSet = new Set(ausentesQ);
   const presentesFixos = fixos.filter(f => !ausentesSet.has(f));
-  const supsSubstituindo = sups.filter(s => s.lugarDe);  // s.lugarDe = nome de fixo
+  const supsSubstituindo = sups.filter(s => s.lugarDe);
   const supsExtras = sups.filter(s => !s.lugarDe);
 
   const recipientesLootSvc = [
     ...presentesFixos,
     ...supsSubstituindo.map(s => s.nome),
   ];
-
-  // Donos que estao em ausentes E tiveram seu boneco pilotado por outro.
-  const donosAusenteComBoneco = [...new Set(
-    bonecosPil
-      .filter(b => b.dono && ausentesSet.has(b.dono) && b.piloto && b.piloto !== b.dono)
-      .map(b => b.dono)
-  )];
-
   const recipientesDrops = [
     ...recipientesLootSvc,
     ...supsExtras.map(s => s.nome),
-    ...donosAusenteComBoneco,
   ];
+  const pilotosNaoFixos = sups
+    .map(s => s.nome)
+    .filter(n => !fixosLowerSet.has(n.toLowerCase()));
 
   return {
     isLegacy: false,
+    mode: 'intermediario',
     recipientesLootSvc,
     recipientesDrops,
     divisorDrops: recipientesDrops.length,
     divisorService: fixos.length || SVC_DIV_DEFAULT,
-    ausentesComBonecoPilotado: donosAusenteComBoneco,
+    ausentes: ausentesQ,
+    ausentesComBonecoPilotado: [],
+    pilotosNaoFixos,
   };
 }
 
@@ -206,6 +254,7 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, g
         questsPresente: 0, questsAusente: 0,
         lootKK: 0, svcTC: 0,
         dropKK: 0, dropTC: 0,
+        isSuplente: false,  // marcado true se a pessoa apareceu como piloto sem ser fixo
       };
     }
     return byFixoMap[key];
@@ -260,12 +309,20 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, g
     const tempoVal = q.tempo ? parseInt(q.tempo) : NaN;
     if (!isNaN(tempoVal)) totalTempo += tempoVal;
 
-    // Quests presentes/ausentes por fixo
-    if (teamFixos.length) {
-      const ausentesSet = new Set(q.ausentes || []);
-      teamFixos.forEach(f => {
-        if (ausentesSet.has(f)) bucketFixo(f, teamId).questsAusente++;
-        else bucketFixo(f, teamId).questsPresente++;
+    // Quests presentes/ausentes por fixo. Conta TODOS os recipientes
+    // (fixos + suplentes/emprestantes) como presentes. Conta os ausentes
+    // separadamente. Marca isSuplente quando o piloto não é fixo do time.
+    if (teamId) {
+      const fixosLowerSet = new Set(teamFixos.map(f => String(f).toLowerCase()));
+      // Presentes = todos que apareceram em recipientesLootSvc
+      [...new Set(dist.recipientesLootSvc)].forEach(nome => {
+        const b = bucketFixo(nome, teamId);
+        b.questsPresente++;
+        if (!fixosLowerSet.has(String(nome).toLowerCase())) b.isSuplente = true;
+      });
+      // Ausentes = fixos que faltaram (deduzido pelo dist)
+      (dist.ausentes || []).forEach(f => {
+        bucketFixo(f, teamId).questsAusente++;
       });
     }
 
