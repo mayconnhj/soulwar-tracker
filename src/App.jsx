@@ -771,26 +771,12 @@ export default function App(){
               <label style={S.lbl}>Time<select value={nf.team} onChange={e=>{
                 const newId=e.target.value;
                 if(newId===nf.team)return;
-                const t=findTeam(teams,newId);
-                // Pre-popula a lista de bonecos pilotados a partir do time:
-                //  - 1 linha por boneco cadastrado (com seu dono como piloto)
-                //  - 1 linha por fixo do time SEM boneco cadastrado
-                //  Assim o usuario ja ve os fixos como presentes; ele edita
-                //  só os casos que mudam (ausencia, troca de piloto, etc).
-                const buildInitial=team=>{
-                  if(!team)return [];
-                  const fromBonecos=(team.bonecos||[]).map(b=>({char:b.char||'',dono:b.dono||'',piloto:b.dono||''}));
-                  const cobertos=new Set(fromBonecos.map(b=>(b.dono||'').toLowerCase()).filter(Boolean));
-                  const semBoneco=(team.fixos||[]).filter(f=>!cobertos.has(f.toLowerCase()))
-                    .map(f=>({char:'',dono:f,piloto:f}));
-                  return [...fromBonecos,...semBoneco];
-                };
+                // Sem suplente = todos os fixos do time presentes.
+                // Usuario adiciona suplente apenas quando alguem falta ou
+                // quando ha vaga extra.
                 setNf(p=>({
-                  ...p,
-                  team:newId,
-                  ausentes:[],
-                  suplentes:[],
-                  bonecosPilotados:buildInitial(t),
+                  ...p,team:newId,
+                  ausentes:[],suplentes:[],bonecosPilotados:[],
                 }));
               }} style={S.sel}>
                 <option value="">Selecione o Time...</option>
@@ -803,81 +789,70 @@ export default function App(){
               <label style={S.lbl}>Preço Service (TC)<input value={nf.servicePrice} onChange={e=>setNf({...nf,servicePrice:e.target.value})} style={S.inp} placeholder="250, 500..."/></label>
               <label style={S.lbl}>Tempo da Quest (min)<input value={nf.tempo} onChange={e=>setNf({...nf,tempo:e.target.value})} style={S.inp} placeholder="60=1h"/>{nf.tempo&&<span style={{fontSize:11,color:"#58a6ff",marginTop:2}}>→ {fmtMin(nf.tempo)}</span>}</label>
               <label style={S.lbl}>Data da Quest<input type="date" value={nf.dropDate} onChange={e=>setNf({...nf,dropDate:e.target.value})} style={S.inp}/></label>
-              {/* QUEM FOI NA QUEST — fonte unica de presença/ausência/emprestantes.
-                  Cada linha = 1 piloto + (boneco + dono opcional).
-                  - Piloto que é fixo do time -> presente, recebe loot/service.
-                  - Piloto fora dos fixos -> emprestante, recebe loot/service.
-                  - Fixo do time SEM linha -> ausente.
-                  - Boneco com dono que é ausente + piloto diferente -> +1 share nos drops. */}
+              {/* SUPLENTES — quem cobriu fixos faltantes ou veio em vaga extra.
+                  Sem suplente = todos os fixos do time presentes.
+                  - lugarDe preenchido = substituindo o fixo X (X fica ausente).
+                  - lugarDe vazio = vaga extra.
+                  - boneco preenchido + lugarDe = pilotou o boneco do fixo X
+                    -> X recebe share extra do drop (regra +1).  */}
               {nf.team&&(()=>{
                 const team=findTeam(teams,nf.team);
                 const fixosTime=team?(team.fixos||[]):[];
-                const fixosLowerSet=new Set(fixosTime.map(f=>f.toLowerCase()));
-                const pilotos=[...new Set((nf.bonecosPilotados||[]).map(b=>b.piloto).filter(Boolean))];
-                const pilotosLowerSet=new Set(pilotos.map(p=>p.toLowerCase()));
-                const ausentes=fixosTime.filter(f=>!pilotosLowerSet.has(f.toLowerCase()));
-                const ausentesLowerSet=new Set(ausentes.map(a=>a.toLowerCase()));
-                const fixosPresentes=fixosTime.filter(f=>pilotosLowerSet.has(f.toLowerCase()));
-                const emprestantes=pilotos.filter(p=>!fixosLowerSet.has(p.toLowerCase()));
-                const ausentesComBoneco=(nf.bonecosPilotados||[])
-                  .filter(b=>b.dono&&ausentesLowerSet.has(b.dono.toLowerCase())
-                              &&b.piloto&&b.piloto.toLowerCase()!==b.dono.toLowerCase())
-                  .map(b=>b.dono);
-                const divisorDrops=pilotos.length+new Set(ausentesComBoneco).size;
+                const sups=(nf.suplentes||[]).filter(s=>s.nome);
+                const ausentes=[...new Set(sups.map(s=>s.lugarDe).filter(Boolean))];
+                const ausentesSetLower=new Set(ausentes.map(a=>a.toLowerCase()));
+                const presentesFixos=fixosTime.filter(f=>!ausentesSetLower.has(f.toLowerCase()));
+                const ausentesComBoneco=[...new Set(sups.filter(s=>s.lugarDe&&s.boneco).map(s=>s.lugarDe))];
+                const divisorDrops=(presentesFixos.length+sups.length)+ausentesComBoneco.length;
+                const divisorLootSvc=presentesFixos.length+sups.length;
                 return <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:8}}>
-                    <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>📦 Bonecos pilotados na quest</span>
-                    <button onClick={()=>setNf(p=>({...p,bonecosPilotados:[...(p.bonecosPilotados||[]),{char:'',dono:'',piloto:''}]}))} style={S.plusBtn}>+ Linha</button>
+                    <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>👥 Suplentes / Emprestantes</span>
+                    <button onClick={addSup} style={S.plusBtn}>+ Suplente</button>
                   </div>
 
-                  {/* Resumo dinamico de presenca */}
-                  <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10,fontSize:11}}>
+                  {/* Resumo dinamico */}
+                  {fixosTime.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10,fontSize:11}}>
                     <span style={{padding:"3px 8px",borderRadius:4,background:"rgba(35,134,54,.15)",border:"1px solid #2ea043",color:"#2ecc40"}}>
-                      ✓ {fixosPresentes.length} fixo(s) presente(s){fixosPresentes.length>0&&`: ${fixosPresentes.join(", ")}`}
+                      ✓ {presentesFixos.length}/{fixosTime.length} fixo(s) presente(s)
                     </span>
                     {ausentes.length>0&&<span style={{padding:"3px 8px",borderRadius:4,background:"rgba(218,54,51,.15)",border:"1px solid #da3633",color:"#f85149"}}>
                       ✕ {ausentes.length} ausente(s): {ausentes.join(", ")}
                     </span>}
-                    {emprestantes.length>0&&<span style={{padding:"3px 8px",borderRadius:4,background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",color:"#58a6ff"}}>
-                      🤝 {emprestantes.length} emprestante(s): {emprestantes.join(", ")}
+                    {sups.length>0&&<span style={{padding:"3px 8px",borderRadius:4,background:"rgba(31,111,235,.15)",border:"1px solid #1f6feb",color:"#58a6ff"}}>
+                      🤝 {sups.length} suplente(s)
                     </span>}
-                    {divisorDrops>0&&<span style={{padding:"3px 8px",borderRadius:4,background:"rgba(254,202,87,.10)",border:"1px solid #feca57",color:"#feca57"}} title="Divisor que será aplicado nos drops desta quest">
-                      ÷ {divisorDrops}{ausentesComBoneco.length>0&&` (= ${pilotos.length} pilotos + ${new Set(ausentesComBoneco).size} dono ausente com boneco)`}
-                    </span>}
-                  </div>
+                    <span style={{padding:"3px 8px",borderRadius:4,background:"rgba(254,202,87,.10)",border:"1px solid #feca57",color:"#feca57"}} title="Divisor de drops">
+                      ÷ {divisorDrops || (sups.length === 0 ? 'BASE' : 0)}{ausentesComBoneco.length>0&&` (+${ausentesComBoneco.length} share extra: ${ausentesComBoneco.join(", ")})`}
+                    </span>
+                  </div>}
 
-                  {/* Linhas */}
-                  {(nf.bonecosPilotados||[]).map((b,i)=>{
-                    const ehFixoTime=b.piloto&&fixosLowerSet.has(b.piloto.toLowerCase());
-                    const donoEhAusente=b.dono&&ausentesLowerSet.has(b.dono.toLowerCase());
-                    const pilotoDifereDono=b.piloto&&b.dono&&b.piloto.toLowerCase()!==b.dono.toLowerCase();
-                    const ativaDivisorExtra=donoEhAusente&&pilotoDifereDono;
-                    return <div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap",padding:ativaDivisorExtra?"6px 8px":"4px 0",background:ativaDivisorExtra?"rgba(254,202,87,.08)":"transparent",borderRadius:ativaDivisorExtra?6:0,border:ativaDivisorExtra?"1px solid #feca57":"none"}}>
-                      <input value={b.char||""} onChange={e=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.map((x,j)=>j===i?{...x,char:e.target.value}:x)}))} placeholder="Boneco" list={`dl-bonecos-team-${nf.team}`} style={{...S.inp,flex:"1 1 130px",fontSize:12}}/>
-                      <input value={b.dono||""} onChange={e=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.map((x,j)=>j===i?{...x,dono:e.target.value}:x)}))} placeholder="Dono (opt)" list={`dl-fixos-team-${nf.team}`} style={{...S.inp,flex:"1 1 100px",fontSize:12}}/>
-                      <input value={b.piloto||""} onChange={e=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.map((x,j)=>j===i?{...x,piloto:e.target.value}:x)}))} placeholder="Piloto *" list={`dl-pilotos-team-${nf.team}`} style={{...S.inp,flex:"1 1 100px",fontSize:12,borderColor:b.piloto?(ehFixoTime?"#2ea043":"#1f6feb"):"#30363d"}}/>
-                      {b.piloto&&<span style={{fontSize:9,fontWeight:600,color:ehFixoTime?"#2ecc40":"#58a6ff",whiteSpace:"nowrap"}}>{ehFixoTime?"FIXO":"EMP."}</span>}
-                      {ativaDivisorExtra&&<span title="Dono ausente + boneco pilotado por outro = +1 share nos drops" style={{fontSize:10,color:"#feca57",fontWeight:600,whiteSpace:"nowrap"}}>⚠️ +1 share</span>}
-                      <button onClick={()=>setNf(p=>({...p,bonecosPilotados:p.bonecosPilotados.filter((_,j)=>j!==i)}))} style={S.cxBtn}>✕</button>
+                  {/* Linhas de suplentes */}
+                  {(nf.suplentes||[]).map((sup,i)=>{
+                    const ativaExtra=sup.lugarDe&&sup.boneco;
+                    return <div key={i} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6,flexWrap:"wrap",padding:ativaExtra?"6px 8px":"4px 0",background:ativaExtra?"rgba(254,202,87,.08)":"transparent",borderRadius:ativaExtra?6:0,border:ativaExtra?"1px solid #feca57":"none"}}>
+                      <input value={sup.nome} onChange={e=>upSup(i,"nome",e.target.value)} placeholder="Nome do suplente *" style={{...S.inp,flex:"1 1 140px",fontSize:12}}/>
+                      <select value={sup.lugarDe||""} onChange={e=>upSup(i,"lugarDe",e.target.value)} style={{...S.sel,flex:"1 1 130px",fontSize:12}}>
+                        <option value="">Vaga extra (não cobre)</option>
+                        {fixosTime.map(f=><option key={f} value={f}>cobrindo {f}</option>)}
+                      </select>
+                      <input value={sup.boneco||""} onChange={e=>upSup(i,"boneco",e.target.value)} placeholder="Boneco (opt)" list={`dl-bonecos-team-${nf.team}`} style={{...S.inp,flex:"1 1 110px",fontSize:12}}/>
+                      {ativaExtra&&<span title="Suplente cobrindo fixo + pilotando boneco dele = +1 share pra esse fixo nos drops" style={{fontSize:10,color:"#feca57",fontWeight:600,whiteSpace:"nowrap"}}>⚠️ +1 share</span>}
+                      <button onClick={()=>rmSup(i)} style={S.cxBtn}>✕</button>
                     </div>;
                   })}
+                  {(nf.suplentes||[]).length===0&&<div style={{fontSize:11,color:"#484f58",padding:"8px 0",textAlign:"center"}}>
+                    Nenhum suplente — todos os {fixosTime.length} fixos do time presentes.
+                  </div>}
                   <div style={{fontSize:11,color:"#484f58",marginTop:4}}>
-                    Cada linha = 1 piloto da quest. Fixos do time sem linha = ausentes (não recebem loot/service). Pilotos não-fixos = emprestantes.
+                    Adicione um suplente quando algum fixo faltou ou quando alguém de fora ocupou vaga extra.
+                    Preencha "boneco" se o suplente pilotou o boneco do fixo coberto (ativa +1 share no drop).
                   </div>
-                  {/* datalists pra autocomplete */}
+                  {/* datalist de bonecos do time pra autocomplete */}
                   {(()=>{
                     const t=findTeam(teams,nf.team);
                     const bonecosT=(t?.bonecos||[]).map(b=>b.char).filter(Boolean);
-                    const fixosT=t?.fixos||[];
-                    const pilotosT=[...new Set([
-                      ...fixosT,
-                      ...((nf.bonecosPilotados||[]).map(b=>b.piloto).filter(Boolean)),
-                    ])];
-                    return <>
-                      <datalist id={`dl-bonecos-team-${nf.team}`}>{bonecosT.map(c=><option key={c} value={c}/>)}</datalist>
-                      <datalist id={`dl-fixos-team-${nf.team}`}>{fixosT.map(f=><option key={f} value={f}/>)}</datalist>
-                      <datalist id={`dl-pilotos-team-${nf.team}`}>{pilotosT.map(p=><option key={p} value={p}/>)}</datalist>
-                    </>;
+                    return <datalist id={`dl-bonecos-team-${nf.team}`}>{bonecosT.map(c=><option key={c} value={c}/>)}</datalist>;
                   })()}
                 </div>;
               })()}
