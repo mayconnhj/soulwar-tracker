@@ -3,6 +3,29 @@
 
 export const BASE_DIVISOR = 7;       // divisor de drops para quests sem dados de presenca (legacy)
 const SVC_DIV_DEFAULT = 5;            // divisor padrao do service quando o time nao tem fixos definidos
+const VAGAS_EXTRAS_DEFAULT = 2;       // vagas além dos 5 fixos (= 2 emprestantes implícitos pra A/B)
+
+// Normaliza um fixo: aceita string ou {nome, peso}. Retorna sempre objeto.
+// Peso default = 1. Time C tem fixos com peso 2 (Raaro, Starcall).
+export function normFixo(f) {
+  if (typeof f === 'string') return { nome: f, peso: 1 };
+  if (f && typeof f === 'object') {
+    return { nome: f.nome || '', peso: Number(f.peso) > 0 ? Number(f.peso) : 1 };
+  }
+  return { nome: '', peso: 1 };
+}
+
+// Lista de fixos normalizada (sempre objetos {nome, peso}).
+export function teamFixosObjs(team) {
+  return ((team && team.fixos) || []).map(normFixo).filter(f => f.nome);
+}
+
+// Mapa { nome.lowercase -> peso } pra lookup rápido.
+function buildPesoMap(fixosObjs) {
+  const m = {};
+  fixosObjs.forEach(f => { m[f.nome.toLowerCase()] = f.peso; });
+  return m;
+}
 
 export function parseDate(d) {
   if (!d) return null;
@@ -74,47 +97,68 @@ export function aggregateCi(rows, getKey) {
 }
 
 /**
- * Distribui uma quest entre seus recipientes.
+ * Distribui uma quest entre seus recipientes com PESOS.
  *
- * Modelo simplificado (modo "suplentes"):
- *  - Sem suplentes registrados E sem nada → assume todos os fixos do
- *    time presentes (modo LEGACY: divisor = BASE_DIVISOR=7 pra compat).
- *  - Com suplentes:
- *      • suplente.lugarDe preenchido → fixo X ausente, suplente cobre.
- *      • suplente.lugarDe vazio      → vaga extra (não substitui fixo).
- *      • suplente.boneco preenchido E lugarDe preenchido → fixo X
- *        ausente recebe share extra de drop (regra "+1").
+ * 3 modos:
+ *  1. LEGACY (sem dados): assume fixos presentes, divisor=BASE_DIVISOR=7.
+ *  2. bonecosPilotados (formato 2.5f): retrocompat de quests gravadas.
+ *  3. SUPLENTES (modo principal): deriva de q.suplentes + team config.
  *
- *  - bonecosPilotados (formato 2.5f): mantido pra retrocompat de quests
- *    já gravadas nesse modo.
+ * Pesos:
+ *  - Cada fixo do time tem um peso (default 1).
+ *  - Suplente cobrindo X HERDA o peso de X.
+ *  - Suplente em vaga extra ou vaga anônima: peso 1.
+ *  - Ausente com boneco pilotado: +1 share peso 1 (regra "+1").
  *
- * Retorno: { recipientesLootSvc, recipientesDrops, divisorDrops,
- *   divisorService, ausentes, ausentesComBonecoPilotado, pilotosNaoFixos,
- *   mode, isLegacy }
+ * Vagas extras:
+ *  - team.vagasExtras (default 2). Quantos emprestantes implícitos.
+ *  - Suplentes em vaga extra OCUPAM essas vagas. Se sobram vagas
+ *    não cobertas, viram "vagas anônimas" (peso 1, somam no divisor mas
+ *    não distribuem pra ninguém — representam emprestantes não registrados).
+ *
+ * Loot/Service: NÃO usam pesos. Cada recipiente loot/svc recebe q.loot
+ * inteiro (igual antes); service / num_fixos do time.
+ *
+ * @param {object} q - quest
+ * @param {object|array} team - objeto team completo OU array de fixos legado
  */
-export function questDistribution(q, teamFixos) {
-  const fixos = Array.isArray(teamFixos) ? teamFixos : [];
-  const fixosLowerSet = new Set(fixos.map(f => String(f).toLowerCase()));
+export function questDistribution(q, team) {
+  // Aceita array (compat) ou objeto.
+  const teamObj = Array.isArray(team) ? { fixos: team } : (team || {});
+  const fixosObjs = teamFixosObjs(teamObj);
+  const fixos = fixosObjs.map(f => f.nome);
+  const fixosLowerSet = new Set(fixos.map(f => f.toLowerCase()));
+  const pesoMap = buildPesoMap(fixosObjs);
+  const _ve = teamObj.vagasExtras;
+  const vagasExtras = (_ve !== undefined && _ve !== null && Number.isFinite(Number(_ve)) && Number(_ve) >= 0)
+    ? Number(_ve) : VAGAS_EXTRAS_DEFAULT;
+
   const bonecosPil = q.bonecosPilotados || [];
   const sups = (q.suplentes || []).filter(s => s.nome);
   const ausentesQ = q.ausentes || [];
+  const pesoOf = nome => (pesoMap[String(nome).toLowerCase()] || 1);
 
-  // ── LEGACY: sem nada registrado ───────────────────────────────────
+  // ── LEGACY ────────────────────────────────────────────────────────
   if (bonecosPil.length === 0 && sups.length === 0 && ausentesQ.length === 0) {
+    const pesos = {};
+    fixos.forEach(f => { pesos[f] = pesoOf(f); });
+    const sumFixos = fixos.reduce((s, f) => s + pesoOf(f), 0);
     return {
-      isLegacy: true,
-      mode: 'legacy',
+      isLegacy: true, mode: 'legacy',
       recipientesLootSvc: [...fixos],
       recipientesDrops: [...fixos],
+      dropsPesos: pesos,
       divisorDrops: BASE_DIVISOR,
       divisorService: fixos.length || SVC_DIV_DEFAULT,
       ausentes: [],
       ausentesComBonecoPilotado: [],
       pilotosNaoFixos: [],
+      vagasExtras,
+      sumPesosFixos: sumFixos,
     };
   }
 
-  // ── 2.5f: tem bonecosPilotados (retrocompat) ─────────────────────
+  // ── 2.5f retrocompat ─────────────────────────────────────────────
   if (bonecosPil.length > 0) {
     const pilotos = [...new Set(bonecosPil.map(b => b.piloto).filter(Boolean))];
     const pilotosLowerSet = new Set(pilotos.map(p => p.toLowerCase()));
@@ -129,50 +173,71 @@ export function questDistribution(q, teamFixos) {
     const recipientesLootSvc = pilotos;
     const recipientesDrops = [...pilotos, ...ausentesComBoneco];
     const pilotosNaoFixos = pilotos.filter(p => !fixosLowerSet.has(p.toLowerCase()));
+    const dropsPesos = {};
+    pilotos.forEach(p => { dropsPesos[p] = pesoOf(p); });
+    ausentesComBoneco.forEach(a => { dropsPesos[a] = 1; });  // share extra peso 1
     return {
       isLegacy: false, mode: 'bonecosPilotados',
       recipientesLootSvc, recipientesDrops,
-      divisorDrops: recipientesDrops.length,
+      dropsPesos,
+      divisorDrops: Object.values(dropsPesos).reduce((s, p) => s + p, 0),
       divisorService: fixos.length || SVC_DIV_DEFAULT,
-      ausentes, ausentesComBonecoPilotado: ausentesComBoneco, pilotosNaoFixos,
+      ausentes, ausentesComBonecoPilotado: ausentesComBoneco,
+      pilotosNaoFixos, vagasExtras,
+      sumPesosFixos: fixos.reduce((s, f) => s + pesoOf(f), 0),
     };
   }
 
-  // ── MODO PRINCIPAL: deriva tudo de q.suplentes ────────────────────
-  // Ausentes = fixos cobertos por algum suplente.lugarDe (+ q.ausentes legado).
+  // ── MODO SUPLENTES (principal) ────────────────────────────────────
   const ausentesFromSups = sups.map(s => s.lugarDe).filter(Boolean);
   const ausentesAll = [...new Set([...ausentesQ, ...ausentesFromSups])];
   const ausentesSetLower = new Set(ausentesAll.map(a => String(a).toLowerCase()));
   const presentesFixos = fixos.filter(f => !ausentesSetLower.has(f.toLowerCase()));
-
-  // Recipientes loot/service = fixos presentes + TODOS os suplentes (cobrindo
-  // ou em vaga extra, todos vieram fisicamente, todos recebem).
-  const recipientesLootSvc = [
-    ...presentesFixos,
-    ...sups.map(s => s.nome),
-  ];
-
-  // Caso especial: suplente que tem lugarDe + boneco preenchido = pilotou
-  // o boneco do fixo coberto. Esse fixo (ausente) recebe share extra do drop.
+  const supsExtras = sups.filter(s => !s.lugarDe);
+  const supsCovering = sups.filter(s => s.lugarDe);
   const ausentesComBoneco = [...new Set(
     sups.filter(s => s.lugarDe && s.boneco).map(s => s.lugarDe)
   )];
 
-  const recipientesDrops = [...recipientesLootSvc, ...ausentesComBoneco];
+  // Pesos por recipiente em DROPS:
+  //  - Fixos presentes: peso configurado.
+  //  - Suplente cobrindo X: peso de X.
+  //  - Suplente em vaga extra: peso 1.
+  //  - Ausentes com boneco: +1 share peso 1.
+  //  - Vagas anônimas (vagas extras não preenchidas por suplentes):
+  //    cada uma soma 1 ao divisor mas NÃO distribui (representa
+  //    emprestantes não registrados).
+  const dropsPesos = {};
+  presentesFixos.forEach(f => { dropsPesos[f] = pesoOf(f); });
+  supsCovering.forEach(s => { dropsPesos[s.nome] = pesoOf(s.lugarDe); });
+  supsExtras.forEach(s => { dropsPesos[s.nome] = 1; });
+  ausentesComBoneco.forEach(a => { dropsPesos[a] = 1; });
+
+  const sumPesosRecipientes = Object.values(dropsPesos).reduce((s, p) => s + p, 0);
+  const vagasAnonimasCount = Math.max(0, vagasExtras - supsExtras.length);
+  const divisorDrops = sumPesosRecipientes + vagasAnonimasCount;
+
+  // Recipientes loot/svc (sem peso — todos recebem q.loot inteiro,
+  // e service / num_fixos)
+  const recipientesLootSvc = [
+    ...presentesFixos,
+    ...sups.map(s => s.nome),
+  ];
+  const recipientesDrops = Object.keys(dropsPesos);
   const pilotosNaoFixos = sups
     .map(s => s.nome)
     .filter(n => !fixosLowerSet.has(n.toLowerCase()));
 
   return {
-    isLegacy: false,
-    mode: 'suplentes',
-    recipientesLootSvc,
-    recipientesDrops,
-    divisorDrops: recipientesDrops.length,
+    isLegacy: false, mode: 'suplentes',
+    recipientesLootSvc, recipientesDrops, dropsPesos,
+    divisorDrops,
     divisorService: fixos.length || SVC_DIV_DEFAULT,
     ausentes: ausentesAll,
     ausentesComBonecoPilotado: ausentesComBoneco,
-    pilotosNaoFixos,
+    pilotosNaoFixos, vagasExtras,
+    vagasAnonimasCount,
+    sumPesosFixos: fixos.reduce((s, f) => s + pesoOf(f), 0),
   };
 }
 
@@ -212,11 +277,12 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, g
   function bucketTeam(id) {
     if (!byTeamMap[id]) {
       const t = teamById(id);
+      const numFixos = teamFixosObjs(t).length;
       byTeamMap[id] = {
         id,
         name: (t && t.name) || (id ? `Time ${id}` : '—'),
         color: (t && t.color) || '#8b949e',
-        numFixos: (t && t.fixos && t.fixos.length) || SVC_DIV_DEFAULT,
+        numFixos: numFixos || SVC_DIV_DEFAULT,
         // Loot
         lootSomado: 0,           // soma simples de q.loot (== loot que cada recipiente recebeu somado)
         lootTotal: 0,            // sum q.loot * num_recipientes (loot total circulado no time)
@@ -258,8 +324,10 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, g
   questData.forEach(q => {
     const teamId = q.team || '';
     const team = teamId ? teamById(teamId) : null;
-    const teamFixos = (team && team.fixos) || [];
-    const dist = questDistribution(q, teamFixos);
+    const teamFixos = teamFixosObjs(team).map(f => f.nome);
+    // Passa o team completo pra questDistribution (pra ter acesso a pesos
+    // e vagasExtras). Cai no fallback se team não existe.
+    const dist = questDistribution(q, team || { fixos: teamFixos });
 
     if (teamId) {
       const b = bucketTeam(teamId);
@@ -316,7 +384,9 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, g
       });
     }
 
-    // Drops vendidos
+    // Drops vendidos — distribui POR PESO. Recipiente recebe valor*(peso/divisor).
+    // Vagas anonimas (parte do divisor) consomem o resto, mas não distribuem
+    // pra ninguém.
     (q.drops || []).filter(d => d.soldPrice).forEach(d => {
       const { kk, tc } = parseSold(d.soldPrice);
       soldKK += kk; soldTC += tc;
@@ -332,12 +402,15 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, g
       const b = bucketTeam(dropTeam);
       b.soldKK += kk; b.soldTC += tc; b.nSold++;
       const div = dist.divisorDrops || BASE_DIVISOR;
-      const sKK = kk / div, sTC = tc / div;
-      b.shareKK += sKK; b.shareTC += sTC;
-
-      dist.recipientesDrops.forEach(nome => {
-        bucketFixo(nome, dropTeam).dropKK += sKK;
-        bucketFixo(nome, dropTeam).dropTC += sTC;
+      // shareKK/TC do time = valor unitário por peso 1 (= drop/divisor).
+      // Cada fixo com peso N recebe N x esse valor.
+      b.shareKK += kk / div;
+      b.shareTC += tc / div;
+      // Distribui pra cada recipiente segundo seu peso.
+      const pesos = dist.dropsPesos || {};
+      Object.entries(pesos).forEach(([nome, peso]) => {
+        bucketFixo(nome, dropTeam).dropKK += (kk * peso) / div;
+        bucketFixo(nome, dropTeam).dropTC += (tc * peso) / div;
       });
     });
   });

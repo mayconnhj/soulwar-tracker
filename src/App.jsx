@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   BASE_DIVISOR, parseDate, fromIso, fmtMin, saleHint, isValidSalePrice,
-  computeAnalytics,
+  computeAnalytics, normFixo, teamFixosObjs,
 } from "./lib/analytics.js";
 
 // ── API helpers ─────────────────────────────────────────────────────
@@ -77,12 +77,13 @@ function deriveTeams(cfg) {
   const td = Array.isArray(cfg.teamsData) ? cfg.teamsData : [];
   if (td.length > 0) return td;
   const fixosLegado = cfg.fixos && cfg.fixos.length > 0 ? cfg.fixos : DEFAULT_FIXOS;
+  const mkFixos = arr => arr.map(n => ({ nome: n, peso: 1 }));
   const mkBonecos = arr => (arr || []).map(c => ({ char: c, dono: '' }));
   return [
-    { id: 'A', name: 'Time A', color: '#58a6ff', fixos: [...fixosLegado], bonecos: mkBonecos(cfg.teamA) },
-    { id: 'B', name: 'Time B', color: '#da3633', fixos: [...fixosLegado], bonecos: mkBonecos(cfg.teamB) },
+    { id: 'A', name: 'Time A', color: '#58a6ff', vagasExtras: 2, fixos: mkFixos(fixosLegado), bonecos: mkBonecos(cfg.teamA) },
+    { id: 'B', name: 'Time B', color: '#da3633', vagasExtras: 2, fixos: mkFixos(fixosLegado), bonecos: mkBonecos(cfg.teamB) },
     ...(cfg.teamC && cfg.teamC.length > 0
-      ? [{ id: 'C', name: 'Time C', color: '#d29922', fixos: [...fixosLegado], bonecos: mkBonecos(cfg.teamC) }]
+      ? [{ id: 'C', name: 'Time C', color: '#d29922', vagasExtras: 2, fixos: mkFixos(fixosLegado), bonecos: mkBonecos(cfg.teamC) }]
       : []),
   ];
 }
@@ -278,7 +279,9 @@ export default function App(){
     backfillRunRef.current = true;
     const fixed = cfg.teamsData.map(t => ({
       ...t,
-      fixos: (t.fixos && t.fixos.length > 0) ? t.fixos : [...DEFAULT_FIXOS],
+      fixos: (t.fixos && t.fixos.length > 0)
+        ? t.fixos
+        : DEFAULT_FIXOS.map(n => ({ nome: n, peso: 1 })),
     }));
     saveC({ ...cfg, teamsData: fixed });
     showToast('Fixos padrão aplicados aos times. Edite os fixos do Time C se precisar.', 'info');
@@ -496,8 +499,8 @@ export default function App(){
   // como piloto/suplente".
   const fixosPoolByName=useMemo(()=>{
     const m={};
-    teams.forEach(t=>(t.fixos||[]).forEach(f=>{
-      const k=String(f).toLowerCase();
+    teams.forEach(t=>teamFixosObjs(t).forEach(f=>{
+      const k=f.nome.toLowerCase();
       if(!m[k])m[k]=[];
       if(!m[k].includes(t.id))m[k].push(t.id);
     }));
@@ -583,14 +586,26 @@ export default function App(){
   const genTeamId = () => 'T' + Date.now().toString(36).slice(-4);
   const addTeam = () => mutateTeams(ts => [...ts, {
     id: genTeamId(), name: `Time ${ts.length + 1}`, color: '#8b949e',
-    fixos: [...DEFAULT_FIXOS], bonecos: [],
+    fixos: DEFAULT_FIXOS.map(n => ({ nome: n, peso: 1 })),
+    bonecos: [], vagasExtras: 2,
   }]);
   const removeTeam = (id) => mutateTeams(ts => ts.filter(t => t.id !== id));
   const updateTeamField = (id, key, val) => mutateTeams(ts => ts.map(t => t.id === id ? { ...t, [key]: val } : t));
   const addFixoToTeam = (id, nome) => mutateTeams(ts => ts.map(t => t.id === id
-    ? { ...t, fixos: [...new Set([...(t.fixos || []), nome])] } : t));
+    ? {
+        ...t,
+        fixos: (() => {
+          const existing = teamFixosObjs(t);
+          if (existing.some(f => f.nome.toLowerCase() === nome.toLowerCase())) return existing;
+          return [...existing, { nome, peso: 1 }];
+        })(),
+      } : t));
   const rmFixoFromTeam = (id, nome) => mutateTeams(ts => ts.map(t => t.id === id
-    ? { ...t, fixos: (t.fixos || []).filter(f => f !== nome) } : t));
+    ? { ...t, fixos: teamFixosObjs(t).filter(f => f.nome !== nome) } : t));
+  const setFixoPeso = (id, nome, peso) => mutateTeams(ts => ts.map(t => t.id === id
+    ? { ...t, fixos: teamFixosObjs(t).map(f => f.nome === nome ? { ...f, peso } : f) } : t));
+  const setTeamVagasExtras = (id, n) => mutateTeams(ts => ts.map(t => t.id === id
+    ? { ...t, vagasExtras: n } : t));
   const addBonecoToTeam = (id) => mutateTeams(ts => ts.map(t => t.id === id
     ? { ...t, bonecos: [...(t.bonecos || []), { char: '', dono: '' }] } : t));
   const rmBonecoFromTeam = (id, idx) => mutateTeams(ts => ts.map(t => t.id === id
@@ -781,7 +796,7 @@ export default function App(){
               }} style={S.sel}>
                 <option value="">Selecione o Time...</option>
                 {teams.map(t=>{
-                  const charsLabel=(t.bonecos||[]).map(b=>b.char).filter(Boolean).join(", ")||(t.fixos||[]).join(", ");
+                  const charsLabel=(t.bonecos||[]).map(b=>b.char).filter(Boolean).join(", ")||teamFixosObjs(t).map(f=>f.nome).join(", ");
                   return <option key={t.id} value={t.id}>{t.name||`Time ${t.id}`}{charsLabel?` — ${charsLabel}`:""}</option>;
                 })}
               </select></label>
@@ -797,7 +812,7 @@ export default function App(){
                     -> X recebe share extra do drop (regra +1).  */}
               {nf.team&&(()=>{
                 const team=findTeam(teams,nf.team);
-                const fixosTime=team?(team.fixos||[]):[];
+                const fixosTime=team?teamFixosObjs(team).map(f=>f.nome):[];
                 const sups=(nf.suplentes||[]).filter(s=>s.nome);
                 const ausentes=[...new Set(sups.map(s=>s.lugarDe).filter(Boolean))];
                 const ausentesSetLower=new Set(ausentes.map(a=>a.toLowerCase()));
@@ -951,6 +966,11 @@ export default function App(){
                              style={{...S.inp,fontWeight:700,color:t.color||"#e6edf3",flex:"1 1 140px",minWidth:120}}/>
                       <input type="color" value={t.color||DEFAULT_TEAM_COLOR} onChange={e=>updateTeamField(t.id,"color",e.target.value)}
                              style={{width:32,height:32,border:"none",cursor:"pointer",background:"transparent",padding:0}} title="Cor do time"/>
+                      <label style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#8b949e"}} title="Quantidade de emprestantes na quest além dos fixos">
+                        Vagas extras:
+                        <input type="number" min="0" max="20" value={t.vagasExtras??2} onChange={e=>setTeamVagasExtras(t.id,Number(e.target.value)||0)}
+                               style={{width:48,padding:"2px 6px",background:"#0d1117",border:"1px solid #30363d",color:"#e6edf3",borderRadius:4,fontSize:12,textAlign:"center"}}/>
+                      </label>
                       <span style={{fontSize:10,color:"#484f58",fontFamily:"monospace"}}>id: {t.id}</span>
                       <button onClick={()=>{if(confirm(`Remover ${t.name}? Quests existentes mantém o id "${t.id}".`))removeTeam(t.id);}}
                               style={{...S.dbD,fontSize:14}} title="Remover time">🗑️</button>
@@ -958,12 +978,17 @@ export default function App(){
 
                     {/* Fixos */}
                     <div style={{marginBottom:10}}>
-                      <div style={{fontSize:11,color:"#8b949e",fontWeight:600,marginBottom:4}}>FIXOS ({(t.fixos||[]).length})</div>
+                      <div style={{fontSize:11,color:"#8b949e",fontWeight:600,marginBottom:4}}>
+                        FIXOS ({teamFixosObjs(t).length})
+                        {(()=>{const total=teamFixosObjs(t).reduce((s,f)=>s+(f.peso||1),0)+(t.vagasExtras??2);return <span style={{color:"#feca57",marginLeft:6}}>· peso total: {total} (divisor base de drops)</span>;})()}
+                      </div>
                       <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                        {(t.fixos||[]).map(f=>(
-                          <span key={f} style={{background:"#0d1117",border:"1px solid #30363d",borderRadius:4,padding:"3px 8px",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}>
-                            {f}
-                            <button onClick={()=>rmFixoFromTeam(t.id,f)} style={{background:"transparent",border:"none",color:"#da3633",cursor:"pointer",fontSize:11,padding:0,marginLeft:2}}>✕</button>
+                        {teamFixosObjs(t).map(f=>(
+                          <span key={f.nome} style={{background:"#0d1117",border:`1px solid ${f.peso>1?"#feca57":"#30363d"}`,borderRadius:4,padding:"3px 8px",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}>
+                            {f.nome}
+                            <input type="number" min="1" max="9" value={f.peso} onChange={e=>setFixoPeso(t.id,f.nome,Number(e.target.value)||1)}
+                                   style={{width:34,padding:"1px 4px",background:"#161b22",border:"1px solid #484f58",color:f.peso>1?"#feca57":"#e6edf3",borderRadius:3,fontSize:11,textAlign:"center"}} title="Peso (default 1)"/>
+                            <button onClick={()=>rmFixoFromTeam(t.id,f.nome)} style={{background:"transparent",border:"none",color:"#da3633",cursor:"pointer",fontSize:11,padding:0,marginLeft:2}}>✕</button>
                           </span>
                         ))}
                         <input type="text" placeholder="+ adicionar fixo" list={`pool-fixos-${t.id}`}
@@ -1037,7 +1062,7 @@ export default function App(){
           <div style={{display:"flex",flexWrap:"wrap",gap:12,marginBottom:24}}>
             {analytics.byTeam.map(t=>{
               const team=findTeam(teams,t.id);
-              const fixosLbl=team?(team.fixos||[]).join(", "):'';
+              const fixosLbl=team?teamFixosObjs(team).map(f=>f.peso>1?`${f.nome}(×${f.peso})`:f.nome).join(", "):'';
               return <div key={t.id} style={{background:"#161b22",border:`1px solid ${t.color}`,borderRadius:10,padding:16,flex:"1 1 300px"}}>
                 <div style={{fontSize:13,fontWeight:600,color:t.color,marginBottom:10}}>
                   {t.name} — {t.nQuests} quest(s) · {t.nSold} venda(s)

@@ -228,6 +228,8 @@ describe('computeAnalytics', () => {
 
 describe('questDistribution', () => {
   const fixosA = ['Maycon', 'Jorge', 'Du', 'Jão', 'Mario'];
+  // Time sem vagas extras pra testar divisor exato igual ao num recipientes.
+  const teamA0 = { fixos: fixosA, vagasExtras: 0 };
 
   it('quest legacy (sem dados de presença) retorna BASE_DIVISOR=7 nos drops', () => {
     const q = { team: 'A', loot: '5.8', servicePrice: '1250' };
@@ -245,12 +247,9 @@ describe('questDistribution', () => {
     expect(d.recipientesLootSvc).toEqual(fixosA);
   });
 
-  it('1 suplente cobrindo Maycon: 4 fixos + 1 suplente = divisor 5', () => {
-    const q = {
-      team: 'A',
-      suplentes: [{ nome: 'Suplente1', lugarDe: 'Maycon' }],
-    };
-    const d = questDistribution(q, fixosA);
+  it('vagasExtras=0 + 1 suplente cobrindo Maycon: divisor = 5', () => {
+    const q = { team: 'A', suplentes: [{ nome: 'Suplente1', lugarDe: 'Maycon' }] };
+    const d = questDistribution(q, teamA0);
     expect(d.mode).toBe('suplentes');
     expect(d.recipientesLootSvc).toContain('Suplente1');
     expect(d.recipientesLootSvc).not.toContain('Maycon');
@@ -258,61 +257,95 @@ describe('questDistribution', () => {
     expect(d.ausentes).toEqual(['Maycon']);
   });
 
-  it('1 suplente em vaga extra (sem lugarDe): 5 fixos + 1 suplente = divisor 6', () => {
-    const q = {
-      team: 'A',
-      suplentes: [{ nome: 'Vaga1', lugarDe: '' }],
-    };
-    const d = questDistribution(q, fixosA);
-    expect(d.recipientesLootSvc.length).toBe(6); // 5 fixos + Vaga1
-    expect(d.recipientesLootSvc).toContain('Vaga1');
-    expect(d.divisorDrops).toBe(6);
-    expect(d.ausentes).toEqual([]);
+  it('Time A real (vagasExtras=2 default) + 1 suplente cobrindo Maycon: divisor = 7', () => {
+    // 4 fixos + 1 suplente cobrindo + 2 vagas anonimas = 7
+    const q = { team: 'A', suplentes: [{ nome: 'Suplente1', lugarDe: 'Maycon' }] };
+    const d = questDistribution(q, fixosA); // sem vagasExtras explícito = 2
+    expect(d.divisorDrops).toBe(7);
+    expect(d.vagasAnonimasCount).toBe(2);
   });
 
-  it('caso especial +1 share: suplente cobre Maycon E pilotou seu boneco', () => {
+  it('Time A + 1 suplente cobrindo + caso +1 (boneco do ausente): divisor = 8', () => {
     const q = {
       team: 'A',
-      suplentes: [
-        { nome: 'Suplente1', lugarDe: 'Maycon', boneco: 'Conopcas' },
-      ],
+      suplentes: [{ nome: 'S1', lugarDe: 'Maycon', boneco: 'Conopcas' }],
     };
     const d = questDistribution(q, fixosA);
-    // 4 fixos presentes + 1 suplente = 5 recipientes loot/svc
-    expect(d.recipientesLootSvc.length).toBe(5);
-    // recipientesDrops = 5 + 1 (Maycon recebe drop pelo boneco) = 6
-    expect(d.divisorDrops).toBe(6);
-    expect(d.recipientesDrops).toContain('Maycon');
-    expect(d.ausentesComBonecoPilotado).toContain('Maycon');
-  });
-
-  it('Maycon ausente recebe DROP mas NÃO recebe loot/service', () => {
-    const q = {
-      team: 'A',
-      suplentes: [
-        { nome: 'Suplente1', lugarDe: 'Maycon', boneco: 'Conopcas' },
-      ],
-    };
-    const d = questDistribution(q, fixosA);
-    expect(d.recipientesLootSvc).not.toContain('Maycon');
+    // 4 fixos + S1 + Maycon (share extra) + 2 vagas anonimas = 8
+    expect(d.divisorDrops).toBe(8);
     expect(d.recipientesDrops).toContain('Maycon');
   });
 
-  it('suplente sem boneco preenchido: NÃO ativa +1 share (Maycon não recebe drop)', () => {
-    const q = {
-      team: 'A',
-      suplentes: [{ nome: 'Suplente1', lugarDe: 'Maycon' }],
+  it('Time C com pesos: 3 fixos peso 1 + Raaro/Starcall peso 2 + 3 vagas extras = divisor 10', () => {
+    const teamC = {
+      fixos: [
+        { nome: 'F1', peso: 1 }, { nome: 'F2', peso: 1 }, { nome: 'F3', peso: 1 },
+        { nome: 'Raaro', peso: 2 }, { nome: 'Starcall', peso: 2 },
+      ],
+      vagasExtras: 3,
     };
-    const d = questDistribution(q, fixosA);
+    const q = { team: 'C' };
+    const d = questDistribution(q, teamC);
+    // legacy mode (sem suplentes) -> divisor BASE_DIVISOR=7. Mas pesos
+    // ainda ficam no dropsPesos. (Comportamento legacy preservado.)
+    expect(d.isLegacy).toBe(true);
+    // Sum pesos fixos = 3*1 + 2*2 = 7
+    expect(d.sumPesosFixos).toBe(7);
+  });
+
+  it('Time C com 1 suplente em vaga extra: divisor = 10 (3*1 + 2*2 + 1 sup + 2 vagas anonimas)', () => {
+    const teamC = {
+      fixos: [
+        { nome: 'F1', peso: 1 }, { nome: 'F2', peso: 1 }, { nome: 'F3', peso: 1 },
+        { nome: 'Raaro', peso: 2 }, { nome: 'Starcall', peso: 2 },
+      ],
+      vagasExtras: 3,
+    };
+    const q = { team: 'C', suplentes: [{ nome: 'Sup1', lugarDe: '' }] };
+    const d = questDistribution(q, teamC);
+    expect(d.mode).toBe('suplentes');
+    // Pesos: F1+F2+F3 (1+1+1) + Raaro (2) + Starcall (2) + Sup1 (1) = 8
+    // Vagas anonimas = 3 - 1 sup extra = 2 (peso 1 cada)
+    // divisor = 8 + 2 = 10
+    expect(d.divisorDrops).toBe(10);
+    expect(d.dropsPesos.Raaro).toBe(2);
+    expect(d.dropsPesos.Starcall).toBe(2);
+    expect(d.dropsPesos.F1).toBe(1);
+    expect(d.dropsPesos.Sup1).toBe(1);
+  });
+
+  it('Time C: suplente cobrindo Raaro herda peso 2', () => {
+    const teamC = {
+      fixos: [
+        { nome: 'F1', peso: 1 }, { nome: 'F2', peso: 1 }, { nome: 'F3', peso: 1 },
+        { nome: 'Raaro', peso: 2 }, { nome: 'Starcall', peso: 2 },
+      ],
+      vagasExtras: 3,
+    };
+    const q = { team: 'C', suplentes: [{ nome: 'X', lugarDe: 'Raaro' }] };
+    const d = questDistribution(q, teamC);
+    // X cobre Raaro: peso 2
+    expect(d.dropsPesos.X).toBe(2);
+    expect(d.dropsPesos.Raaro).toBeUndefined();
+    expect(d.ausentes).toEqual(['Raaro']);
+  });
+
+  it('suplente sem boneco preenchido: NÃO ativa +1 share', () => {
+    const q = { team: 'A', suplentes: [{ nome: 'Suplente1', lugarDe: 'Maycon' }] };
+    const d = questDistribution(q, teamA0);
     expect(d.ausentesComBonecoPilotado.length).toBe(0);
     expect(d.recipientesDrops).not.toContain('Maycon');
   });
 });
 
 describe('computeAnalytics com presença/ausência', () => {
+  // teams sem vagasExtras: usa default = 2 → divisor base 7.
+  // teamsZero usa vagasExtras=0 → divisor é exatamente o numero de
+  // recipientes (5 fixos sem suplente = 5).
   const teams = [
     { id: 'A', name: 'Time A', color: '#58a6ff',
       fixos: ['Maycon', 'Jorge', 'Du', 'Jão', 'Mario'],
+      vagasExtras: 0,  // testes antigos contavam só recipientes
       bonecos: [{ char: 'Conopcas', dono: 'Maycon' }] },
   ];
   const tcKK = 39, tcReal = 53, tcQty = 250;
