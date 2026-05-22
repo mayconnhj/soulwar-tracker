@@ -546,17 +546,49 @@ describe('computeAnalytics com presença/ausência', () => {
     expect(maycon.svcTC).toBe(0);
   });
 
-  it('quest legacy (sem dados): mantem comportamento de divisor=7', () => {
+  it('quest legacy Time A (5 fixos + 2 vagas): divisor 7', () => {
+    const teamsA = [{
+      id: 'A', name: 'Time A',
+      fixos: ['Maycon', 'Jorge', 'Du', 'Jão', 'Mario'],
+      vagasExtras: 2,
+    }];
     const quests = [{
       id: 'q1', dropDate: '07/05/2026', team: 'A',
       loot: '5', servicePrice: '500',
       drops: [{ id: 'd1', item: 'Soulcutter', char: 'Maycon', soldPrice: '70kk' }],
     }];
-    const a = computeAnalytics({ quests, aMonth: '', tcKK, tcReal, tcQty, teams });
-    // shareKK por fixo = 70/7 = 10
+    const a = computeAnalytics({ quests, aMonth: '', tcKK, tcReal, tcQty, teams: teamsA });
+    // shareKK por fixo (peso 1) = 70/7 = 10
     expect(a.byTeam[0].shareKK).toBeCloseTo(70 / 7, 5);
-    // Loot por fixo = 5 pra cada um dos 5 fixos
     expect(a.byFixo.find(f => f.nome === 'Maycon').lootKK).toBe(5);
-    expect(a.byFixo.length).toBe(5); // 5 fixos
+    expect(a.byFixo.length).toBe(5);
+  });
+
+  it('quest legacy Time C (115kk, peso total 10): Raaro/Starcall recebem 23kk, NÃO 32kk', () => {
+    const teamsC = [{
+      id: 'C', name: 'Time C',
+      fixos: [
+        { nome: 'F1', peso: 1 }, { nome: 'F2', peso: 1 }, { nome: 'F3', peso: 1 },
+        { nome: 'Raaro', peso: 2 }, { nome: 'Starcall', peso: 2 },
+      ],
+      vagasExtras: 3,  // 3×1 + 2×2 + 3 = 10
+    }];
+    const quests = [{
+      id: 'q1', dropDate: '07/05/2026', team: 'C',
+      drops: [{ id: 'd1', item: 'Soulshell', char: 'Raaro', soldPrice: '115kk' }],
+    }];
+    const a = computeAnalytics({ quests, aMonth: '', tcKK, tcReal, tcQty, teams: teamsC });
+    const raaro = a.byFixo.find(f => f.nome === 'Raaro');
+    const starcall = a.byFixo.find(f => f.nome === 'Starcall');
+    const f1 = a.byFixo.find(f => f.nome === 'F1');
+    // divisor = 10. Raaro peso 2 = 115*2/10 = 23. NÃO 115*2/7 = 32.86.
+    expect(raaro.dropKK).toBeCloseTo(23, 5);
+    expect(starcall.dropKK).toBeCloseTo(23, 5);
+    // Fixo comum peso 1 = 115/10 = 11.5
+    expect(f1.dropKK).toBeCloseTo(11.5, 5);
+    // shareKK do time (valor por peso 1) = 115/10 = 11.5
+    expect(a.byTeam[0].shareKK).toBeCloseTo(11.5, 5);
+    // Raaro NÃO recebe duplicado (peso 2, não 1+2=3)
+    expect(raaro.dropKK).not.toBeCloseTo(115 * 3 / 10, 1);
   });
 });

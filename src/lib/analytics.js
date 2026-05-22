@@ -235,12 +235,17 @@ export function questDistribution(q, team) {
     const pesos = {};
     fixos.forEach(f => { pesos[f] = pesoOf(f); });
     const sumFixos = fixos.reduce((s, f) => s + pesoOf(f), 0);
+    // Divisor de drops = config do time = soma dos pesos dos fixos +
+    // vagas extras. NUNCA recalculado por quantidade de bonecos.
+    // Ex Time C: 3×1 + 2×2 + 3 vagas = 10. Time A: 5×1 + 2 = 7.
+    // Só cai no BASE_DIVISOR (7) se o time não tem fixos cadastrados.
+    const divisorLegacy = sumFixos > 0 ? (sumFixos + vagasExtras) : BASE_DIVISOR;
     return {
       isLegacy: true, mode: 'legacy',
       recipientesLootSvc: [...fixos],
       recipientesDrops: [...fixos],
       dropsPesos: pesos,
-      divisorDrops: BASE_DIVISOR,
+      divisorDrops: divisorLegacy,
       divisorService: fixos.length || SVC_DIV_DEFAULT,
       ausentes: [],
       ausentesComBonecoPilotado: [],
