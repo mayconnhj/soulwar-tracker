@@ -34,6 +34,98 @@ export function parseDate(d) {
   return new Date(Number(yy), Number(mm) - 1, Number(dd));
 }
 
+// ── Filtro de data unificado (Análise, Fixo, Histórico) ────────────
+const MESES = {
+  janeiro: 1, jan: 1,
+  fevereiro: 2, fev: 2,
+  marco: 3, 'março': 3, mar: 3,
+  abril: 4, abr: 4,
+  maio: 5, mai: 5,
+  junho: 6, jun: 6,
+  julho: 7, jul: 7,
+  agosto: 8, ago: 8,
+  setembro: 9, set: 9,
+  outubro: 10, out: 10,
+  novembro: 11, nov: 11,
+  dezembro: 12, dez: 12,
+};
+
+export function monthFromName(s) {
+  if (!s) return null;
+  const k = String(s).toLowerCase().trim();
+  return MESES[k] || null;
+}
+
+function normYear(y) {
+  return y < 100 ? 2000 + y : y;
+}
+
+/**
+ * Interpreta o texto de filtro de data em vários formatos BR.
+ * Retorna { day?, month?, year? } ou null se vazio/não reconhecido.
+ *
+ *  "abril" / "abr" / "ABRIL"   -> { month: 4 }
+ *  "04" / "4"                  -> { month: 4 }
+ *  "2026"                      -> { year: 2026 }
+ *  "04/2026" / "abril 2026"    -> { month: 4, year: 2026 }
+ *  "12/04/2026" (BR)           -> { day: 12, month: 4, year: 2026 }
+ *  "2026-04" (input month)     -> { year: 2026, month: 4 }
+ */
+export function parseDateFilter(text) {
+  if (!text) return null;
+  const s = String(text).trim().toLowerCase();
+  if (!s) return null;
+
+  let m;
+  // Data completa BR: DD/MM/YYYY (/, - ou .)
+  m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (m) return { day: +m[1], month: +m[2], year: normYear(+m[3]) };
+
+  // Mês/ano numérico: MM/YYYY
+  m = s.match(/^(\d{1,2})[/\-.](\d{4})$/);
+  if (m && +m[1] >= 1 && +m[1] <= 12) return { month: +m[1], year: +m[2] };
+
+  // Nome do mês + ano: "abril 2026" / "abril/2026"
+  m = s.match(/^([a-zç]+)[\s/\-.]+(\d{4})$/);
+  if (m) {
+    const mo = monthFromName(m[1]);
+    if (mo) return { month: mo, year: +m[2] };
+  }
+
+  // Input month nativo: YYYY-MM
+  m = s.match(/^(\d{4})-(\d{1,2})$/);
+  if (m) return { year: +m[1], month: +m[2] };
+
+  // Só ano: 2026
+  m = s.match(/^(\d{4})$/);
+  if (m) return { year: +m[1] };
+
+  // Só número do mês: 1-12
+  m = s.match(/^(\d{1,2})$/);
+  if (m && +m[1] >= 1 && +m[1] <= 12) return { month: +m[1] };
+
+  // Só nome do mês: "abril"
+  const mo = monthFromName(s);
+  if (mo) return { month: mo };
+
+  return null; // não reconhecido — tratado como "sem filtro" (passa tudo)
+}
+
+/**
+ * True se a data BR (DD/MM/YYYY) bate com o filtro de texto.
+ * Filtro vazio ou não reconhecido = passa tudo (true).
+ */
+export function dateMatchesFilter(dateBR, filterText) {
+  const f = parseDateFilter(filterText);
+  if (!f) return true;
+  const dt = parseDate(dateBR);
+  if (!dt) return false;
+  if (f.year !== undefined && dt.getFullYear() !== f.year) return false;
+  if (f.month !== undefined && (dt.getMonth() + 1) !== f.month) return false;
+  if (f.day !== undefined && dt.getDate() !== f.day) return false;
+  return true;
+}
+
 export function fromIso(iso) {
   if (!iso) return '';
   const [yy, mm, dd] = String(iso).split('-');
@@ -258,6 +350,114 @@ export function questDistribution(q, team) {
 }
 
 /**
+ * Contador de "dry" (quests sem drop) por boneco, derivado do histórico.
+ *
+ * Percorre as quests em ordem cronológica. Pra cada boneco que participou
+ * de uma quest (= boneco do time daquela quest, ou que aparece em algum
+ * drop dela):
+ *   - Se dropou nessa quest → fecha um ciclo (attemptsBeforeDrop = dry+1,
+ *     contando a quest do drop), salva no histórico de ciclos e zera o
+ *     contador.
+ *   - Se NÃO dropou → +1 no contador (dry streak).
+ *
+ * Tudo derivado dos dados brutos: editar/excluir quest recalcula sozinho.
+ *
+ * @param {array} quests
+ * @param {array} teams - [{id, bonecos: [{char, dono}]}]
+ * @param {string} dateFilter - opcional, filtra quests pelo período
+ * @returns array ordenado por currentDry desc:
+ *   [{ char, teamId, currentDry, totalDrops, totalQuests, cycles,
+ *      avgAttempts, lastDropDate, lastDropItem, maxDry }]
+ */
+export function computeDryStreaks(quests, teams, dateFilter) {
+  let qs = Array.isArray(quests) ? quests : [];
+  if (dateFilter) qs = qs.filter(q => dateMatchesFilter(q.dropDate, dateFilter));
+
+  // Ordena cronológico (mais antiga -> mais nova). Sem data vai pro fim.
+  const sorted = [...qs].sort((a, b) => {
+    const da = parseDate(a.dropDate), db = parseDate(b.dropDate);
+    return (da ? da.getTime() : Infinity) - (db ? db.getTime() : Infinity);
+  });
+
+  const teamsArr = Array.isArray(teams) ? teams : [];
+  const teamById = id => teamsArr.find(t => t.id === id) || null;
+
+  const stats = {}; // char.lower -> bucket
+  function bucket(char) {
+    const k = String(char).toLowerCase();
+    if (!stats[k]) {
+      stats[k] = {
+        char, teamId: null,
+        currentDry: 0, totalDrops: 0, totalQuests: 0, maxDry: 0,
+        cycles: [],
+      };
+    }
+    return stats[k];
+  }
+
+  for (const q of sorted) {
+    const team = teamById(q.team);
+    const teamBonecos = (team && team.bonecos ? team.bonecos : [])
+      .map(b => b.char).filter(Boolean);
+
+    // Drops dessa quest, agrupados por boneco.
+    const dropsByChar = {};
+    (q.drops || []).forEach(d => {
+      if (d.char) {
+        const k = d.char.toLowerCase();
+        (dropsByChar[k] = dropsByChar[k] || []).push(d.item || '');
+      }
+    });
+
+    // Participantes = bonecos do time ∪ bonecos que dropram (caso fora do time).
+    const partKeys = new Set([
+      ...teamBonecos.map(c => c.toLowerCase()),
+      ...Object.keys(dropsByChar),
+    ]);
+
+    for (const ck of partKeys) {
+      const charName =
+        teamBonecos.find(c => c.toLowerCase() === ck) ||
+        ((q.drops || []).find(d => d.char && d.char.toLowerCase() === ck) || {}).char ||
+        ck;
+      const b = bucket(charName);
+      if (team && !b.teamId) b.teamId = team.id;
+      b.totalQuests++;
+
+      const dropped = dropsByChar[ck];
+      if (dropped && dropped.length) {
+        dropped.forEach(item => {
+          b.totalDrops++;
+          b.cycles.push({
+            attemptsBeforeDrop: b.currentDry + 1, // inclui a quest do drop
+            dropDate: q.dropDate,
+            itemName: item,
+            questId: q.id,
+          });
+          b.currentDry = 0;
+        });
+      } else {
+        b.currentDry++;
+        if (b.currentDry > b.maxDry) b.maxDry = b.currentDry;
+      }
+    }
+  }
+
+  return Object.values(stats).map(b => {
+    const avgAttempts = b.cycles.length
+      ? b.cycles.reduce((s, c) => s + c.attemptsBeforeDrop, 0) / b.cycles.length
+      : null;
+    const last = b.cycles[b.cycles.length - 1];
+    return {
+      ...b,
+      avgAttempts,
+      lastDropDate: last ? last.dropDate : null,
+      lastDropItem: last ? last.itemName : null,
+    };
+  }).sort((a, b) => b.currentDry - a.currentDry);
+}
+
+/**
  * Calcula todos os agregados que a aba Analise mostra.
  *
  * @param {object} args
@@ -277,11 +477,10 @@ export function computeAnalytics({ quests, aMonth, tcKK, tcReal, tcQty, teams, g
 
   // Filtro por mes
   let questData = Array.isArray(quests) ? quests : [];
+  // aMonth aceita texto livre: "abril", "04", "2026", "04/2026",
+  // "12/04/2026", ou "2026-04" (compat input month).
   if (aMonth) {
-    questData = questData.filter(q => {
-      const dt = parseDate(q.dropDate); if (!dt) return false;
-      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}` === aMonth;
-    });
+    questData = questData.filter(q => dateMatchesFilter(q.dropDate, aMonth));
   }
 
   const allDrops = questData.flatMap(q => (q.drops || []).map(d => ({

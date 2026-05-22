@@ -2,7 +2,138 @@ import { describe, it, expect } from 'vitest';
 import {
   parseDate, fromIso, fmtMin, parseSold, saleHint, aggregateCi,
   computeAnalytics, BASE_DIVISOR, isValidSalePrice, questDistribution,
+  parseDateFilter, dateMatchesFilter, monthFromName, computeDryStreaks,
 } from './analytics.js';
+
+describe('parseDateFilter', () => {
+  it('nome do mês (várias formas)', () => {
+    expect(parseDateFilter('abril')).toEqual({ month: 4 });
+    expect(parseDateFilter('Abril')).toEqual({ month: 4 });
+    expect(parseDateFilter('ABRIL')).toEqual({ month: 4 });
+    expect(parseDateFilter('abr')).toEqual({ month: 4 });
+    expect(parseDateFilter('março')).toEqual({ month: 3 });
+    expect(parseDateFilter('marco')).toEqual({ month: 3 });
+  });
+  it('número do mês', () => {
+    expect(parseDateFilter('04')).toEqual({ month: 4 });
+    expect(parseDateFilter('4')).toEqual({ month: 4 });
+    expect(parseDateFilter('12')).toEqual({ month: 12 });
+  });
+  it('ano', () => {
+    expect(parseDateFilter('2026')).toEqual({ year: 2026 });
+  });
+  it('data completa BR', () => {
+    expect(parseDateFilter('12/04/2026')).toEqual({ day: 12, month: 4, year: 2026 });
+    expect(parseDateFilter('12-04-2026')).toEqual({ day: 12, month: 4, year: 2026 });
+    expect(parseDateFilter('12.04.2026')).toEqual({ day: 12, month: 4, year: 2026 });
+  });
+  it('mês/ano', () => {
+    expect(parseDateFilter('04/2026')).toEqual({ month: 4, year: 2026 });
+    expect(parseDateFilter('abril 2026')).toEqual({ month: 4, year: 2026 });
+    expect(parseDateFilter('abril/2026')).toEqual({ month: 4, year: 2026 });
+  });
+  it('input month nativo YYYY-MM (compat)', () => {
+    expect(parseDateFilter('2026-04')).toEqual({ year: 2026, month: 4 });
+  });
+  it('vazio ou não reconhecido = null', () => {
+    expect(parseDateFilter('')).toBeNull();
+    expect(parseDateFilter('   ')).toBeNull();
+    expect(parseDateFilter('xyzw')).toBeNull();
+  });
+  it('NÃO interpreta como formato americano', () => {
+    // 04/12/2026 BR = 4 de dezembro de 2026 (dia 4, mês 12)
+    expect(parseDateFilter('04/12/2026')).toEqual({ day: 4, month: 12, year: 2026 });
+  });
+});
+
+describe('dateMatchesFilter', () => {
+  it('filtra por mês (nome e número)', () => {
+    expect(dateMatchesFilter('12/04/2026', 'abril')).toBe(true);
+    expect(dateMatchesFilter('12/04/2026', '04')).toBe(true);
+    expect(dateMatchesFilter('12/05/2026', 'abril')).toBe(false);
+  });
+  it('filtra por ano', () => {
+    expect(dateMatchesFilter('12/04/2026', '2026')).toBe(true);
+    expect(dateMatchesFilter('12/04/2025', '2026')).toBe(false);
+  });
+  it('filtra por data completa (dia exato)', () => {
+    expect(dateMatchesFilter('12/04/2026', '12/04/2026')).toBe(true);
+    expect(dateMatchesFilter('13/04/2026', '12/04/2026')).toBe(false);
+  });
+  it('filtra por mês+ano', () => {
+    expect(dateMatchesFilter('12/04/2026', '04/2026')).toBe(true);
+    expect(dateMatchesFilter('12/04/2025', '04/2026')).toBe(false);
+  });
+  it('filtro vazio passa tudo', () => {
+    expect(dateMatchesFilter('12/04/2026', '')).toBe(true);
+    expect(dateMatchesFilter('12/04/2026', 'lixo')).toBe(true);
+  });
+});
+
+describe('monthFromName', () => {
+  it('reconhece nomes e abreviações', () => {
+    expect(monthFromName('janeiro')).toBe(1);
+    expect(monthFromName('DEZ')).toBe(12);
+    expect(monthFromName('xyz')).toBeNull();
+  });
+});
+
+describe('computeDryStreaks', () => {
+  const teams = [
+    { id: 'A', bonecos: [{ char: 'Abel Shaene', dono: 'Maycon' }, { char: 'Verfix', dono: 'Jorge' }] },
+  ];
+  it('conta dry e fecha ciclo no drop (attemptsBeforeDrop inclui a quest do drop)', () => {
+    const quests = [
+      { id: 'q1', team: 'A', dropDate: '01/04/2026', drops: [] }, // ninguém dropou
+      { id: 'q2', team: 'A', dropDate: '02/04/2026', drops: [] },
+      { id: 'q3', team: 'A', dropDate: '03/04/2026', drops: [{ char: 'Abel Shaene', item: 'Soulcutter' }] },
+    ];
+    const r = computeDryStreaks(quests, teams);
+    const abel = r.find(b => b.char === 'Abel Shaene');
+    expect(abel.totalQuests).toBe(3);
+    expect(abel.totalDrops).toBe(1);
+    expect(abel.currentDry).toBe(0); // dropou na última, resetou
+    expect(abel.cycles).toHaveLength(1);
+    expect(abel.cycles[0].attemptsBeforeDrop).toBe(3); // 2 secas + a do drop
+    expect(abel.cycles[0].itemName).toBe('Soulcutter');
+    // Verfix não dropou nenhuma das 3
+    const verfix = r.find(b => b.char === 'Verfix');
+    expect(verfix.currentDry).toBe(3);
+    expect(verfix.totalDrops).toBe(0);
+  });
+  it('ordena por currentDry desc (mais estacado no topo)', () => {
+    const quests = [
+      { id: 'q1', team: 'A', dropDate: '01/04/2026', drops: [{ char: 'Abel Shaene', item: 'X' }] },
+      { id: 'q2', team: 'A', dropDate: '02/04/2026', drops: [] },
+    ];
+    const r = computeDryStreaks(quests, teams);
+    // Verfix tem 2 dry, Abel tem 1 dry (dropou na q1, secou na q2)
+    expect(r[0].char).toBe('Verfix');
+    expect(r[0].currentDry).toBe(2);
+  });
+  it('calcula avgAttempts e último drop', () => {
+    const quests = [
+      { id: 'q1', team: 'A', dropDate: '01/04/2026', drops: [{ char: 'Abel Shaene', item: 'A' }] },
+      { id: 'q2', team: 'A', dropDate: '02/04/2026', drops: [] },
+      { id: 'q3', team: 'A', dropDate: '03/04/2026', drops: [{ char: 'Abel Shaene', item: 'B' }] },
+    ];
+    const r = computeDryStreaks(quests, teams);
+    const abel = r.find(b => b.char === 'Abel Shaene');
+    // ciclo1: attemptsBeforeDrop=1 (dropou direto); ciclo2: 2 (1 seca + drop)
+    expect(abel.cycles.map(c => c.attemptsBeforeDrop)).toEqual([1, 2]);
+    expect(abel.avgAttempts).toBeCloseTo(1.5, 5);
+    expect(abel.lastDropItem).toBe('B');
+    expect(abel.lastDropDate).toBe('03/04/2026');
+  });
+  it('respeita filtro de data', () => {
+    const quests = [
+      { id: 'q1', team: 'A', dropDate: '01/04/2026', drops: [] },
+      { id: 'q2', team: 'A', dropDate: '01/05/2026', drops: [] },
+    ];
+    const rAbril = computeDryStreaks(quests, teams, 'abril');
+    expect(rAbril.find(b => b.char === 'Abel Shaene').totalQuests).toBe(1);
+  });
+});
 
 describe('parseDate', () => {
   it('parses DD/MM/YYYY', () => {

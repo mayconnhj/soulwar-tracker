@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   BASE_DIVISOR, parseDate, fromIso, fmtMin, saleHint, isValidSalePrice,
   computeAnalytics, normFixo, teamFixosObjs,
+  dateMatchesFilter, computeDryStreaks,
 } from "./lib/analytics.js";
 
 // ── API helpers ─────────────────────────────────────────────────────
@@ -285,7 +286,7 @@ export default function App(){
     }));
     saveC({ ...cfg, teamsData: fixed });
     showToast('Fixos padrão aplicados aos times. Edite os fixos do Time C se precisar.', 'info');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   },[isAdmin, cfg.teamsData]);
 
   const tcKK=useMemo(()=>parseFloat(String(cfg.tcPriceKK||"39").replace(",","."))||39,[cfg.tcPriceKK]);
@@ -467,13 +468,8 @@ export default function App(){
       const qq = fChar.toLowerCase();
       if(!(d.char||"").toLowerCase().includes(qq) && !(d.dropador||"").toLowerCase().includes(qq)) return false;
     }
-    if(fDate){
-      const dt = parseDate(d.dropDate);
-      if(dt){
-        const iso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
-        if(iso !== fDate) return false;
-      }
-    }
+    // Filtro de data flexível: mês (nome/número), ano, mês/ano, ou dia exato.
+    if(fDate && !dateMatchesFilter(d.dropDate, fDate)) return false;
     return true;
   }), [flatRows, fItem, fChar, fDate]);
 
@@ -492,6 +488,12 @@ export default function App(){
   const analytics=useMemo(
     ()=>computeAnalytics({quests:sortedQuests,aMonth,tcKK,tcReal,tcQty,teams,getTeam}),
     [sortedQuests,aMonth,getTeam,tcKK,tcReal,tcQty,teams]
+  );
+
+  // Contador de "dry" (quests sem drop) por boneco, derivado do histórico.
+  const dryStreaks=useMemo(
+    ()=>computeDryStreaks(sortedQuests,teams,aMonth),
+    [sortedQuests,teams,aMonth]
   );
 
   // Pool de fixos por nome (lowercase) -> [teamIds que tem como fixo].
@@ -688,7 +690,7 @@ export default function App(){
           <div style={S.filters}>
             <select value={fItem} onChange={e=>setFItem(e.target.value)} style={S.sel}><option value="">Todos itens</option>{itemNames.map(i=><option key={i} value={i}>{i}</option>)}</select>
             <input placeholder="Personagem / dropador..." value={fChar} onChange={e=>setFChar(e.target.value)} style={{...S.inp,flex:1,minWidth:150}}/>
-            <input type="date" value={fDate} onChange={e=>setFDate(e.target.value)} style={S.inp}/>
+            <input placeholder="Data: abril, 04, 2026, 12/04/2026..." value={fDate} onChange={e=>setFDate(e.target.value)} style={{...S.inp,minWidth:180}} title="Aceita: mês (abril/04), ano (2026), mês/ano (04/2026) ou dia (12/04/2026)"/>
             <button onClick={()=>{setFItem("");setFChar("");setFDate("");}} style={S.clearBtn}>Limpar</button>
           </div>
           {(()=>{
@@ -827,7 +829,6 @@ export default function App(){
                   sups.filter(s=>s.lugarDe&&s.boneco&&ehBonecoDoFixo(s.boneco,s.lugarDe)).map(s=>s.lugarDe)
                 )];
                 const divisorDrops=(presentesFixos.length+sups.length)+ausentesComBoneco.length;
-                const divisorLootSvc=presentesFixos.length+sups.length;
                 return <div style={{borderTop:"1px solid #30363d",paddingTop:12}}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:8}}>
                     <span style={{fontSize:13,color:"#8b949e",fontWeight:500}}>👥 Suplentes / Emprestantes</span>
@@ -1045,9 +1046,9 @@ export default function App(){
 
         {/* ANÁLISE */}
         {tab==="analise"&&isAdmin&&<div>
-          <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:13,color:"#8b949e"}}>Mês:</span>
-            <input type="month" value={aMonth} onChange={e=>setAMonth(e.target.value)} style={S.inp}/>
+          <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,color:"#8b949e"}}>Período:</span>
+            <input placeholder="abril, 04, 2026, 04/2026, 12/04/2026..." value={aMonth} onChange={e=>setAMonth(e.target.value)} style={{...S.inp,minWidth:220}} title="Aceita: mês (abril/04), ano (2026), mês/ano (04/2026) ou dia (12/04/2026)"/>
             {aMonth&&<button onClick={()=>setAMonth("")} style={S.clearBtn}>Todos</button>}
           </div>
           {analytics.unmatchedSales>0&&<div style={{background:"rgba(218,54,51,.12)",border:"1px solid #da3633",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#f85149"}}>
@@ -1122,6 +1123,34 @@ export default function App(){
             <div style={S.chCard}><h3 style={S.chT}>🎮 Bonecos</h3><MiniBar data={analytics.charRank} lk="name" vk="count" color="#feca57" mx={10}/>{analytics.charRank.length===0&&<div style={S.empty}>Sem dados</div>}</div>
             <div style={S.chCard}><h3 style={S.chT}>👤 Dropadores</h3><MiniBar data={analytics.dropadorRank} lk="name" vk="count" color="#2ecc40" mx={10}/>{analytics.dropadorRank.length===0&&<div style={S.empty}>Sem dados</div>}</div>
           </div>
+
+          {/* BONECOS SEM DROP (dry counter) */}
+          <h2 style={{...S.h2,marginTop:24}}>🏜️ Bonecos sem drop (dry)</h2>
+          <div style={{fontSize:11,color:"#484f58",marginBottom:12}}>
+            Quantas quests seguidas cada boneco está sem dropar. Quem está mais "estacado" aparece no topo.
+            Quando dropa, o ciclo é salvo e o contador zera. "Média" = média de quests até dropar nos ciclos passados.
+          </div>
+          <div style={S.tw}><table style={S.tbl}><thead><tr>
+            <th style={S.th}>Boneco</th><th style={S.th}>Time</th>
+            <th style={S.th}>Dry atual</th><th style={S.th}>Recorde dry</th>
+            <th style={S.th}>Total drops</th><th style={S.th}>Quests</th>
+            <th style={S.th}>Média p/ dropar</th><th style={S.th}>Último drop</th>
+          </tr></thead><tbody>
+            {dryStreaks.length===0&&<tr><td colSpan={8} style={S.empty}>Sem dados — registre quests com os bonecos cadastrados nos times</td></tr>}
+            {dryStreaks.map(b=>{
+              const dryColor=b.currentDry>=15?"#da3633":b.currentDry>=8?"#feca57":"#8b949e";
+              return <tr key={b.char} style={S.rN}>
+                <td style={{...S.td,fontWeight:600}}><Img name={b.char} items={allItems} removedItems={cfg.removedItems}/> <span style={{marginLeft:6}}>{b.char}</span></td>
+                <td style={{...S.td,color:teamColor(teams,b.teamId),fontWeight:600}}>{b.teamId?teamLabel(teams,b.teamId):"—"}</td>
+                <td style={{...S.td,fontWeight:700,color:dryColor,fontSize:15}}>{b.currentDry}</td>
+                <td style={S.td}>{b.maxDry}</td>
+                <td style={{...S.td,color:"#2ecc40",fontWeight:600}}>{b.totalDrops}</td>
+                <td style={S.td}>{b.totalQuests}</td>
+                <td style={S.td}>{b.avgAttempts!=null?`${b.avgAttempts.toFixed(1)} quests`:"—"}</td>
+                <td style={S.td}>{b.lastDropDate?`${b.lastDropItem||"?"} · ${b.lastDropDate}`:"—"}</td>
+              </tr>;
+            })}
+          </tbody></table></div>
         </div>}
 
         {/* FIXOS — analytics individual por pessoa */}
@@ -1183,8 +1212,8 @@ export default function App(){
           </div>;
           return <div>
             <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-              <span style={{fontSize:13,color:"#8b949e"}}>Mês:</span>
-              <input type="month" value={aMonth} onChange={e=>setAMonth(e.target.value)} style={S.inp}/>
+              <span style={{fontSize:13,color:"#8b949e"}}>Período:</span>
+              <input placeholder="abril, 04, 2026, 04/2026, 12/04/2026..." value={aMonth} onChange={e=>setAMonth(e.target.value)} style={{...S.inp,minWidth:220}} title="Aceita: mês (abril/04), ano (2026), mês/ano (04/2026) ou dia (12/04/2026)"/>
               {aMonth&&<button onClick={()=>setAMonth("")} style={S.clearBtn}>Todos</button>}
               <span style={{fontSize:11,color:"#484f58",marginLeft:"auto"}}>
                 {fixosArr.length} fixo(s) · {suplentesArr.length} suplente(s) · ordenado por total R$
